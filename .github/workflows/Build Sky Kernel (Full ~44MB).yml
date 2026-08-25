@@ -1,4 +1,4 @@
-name: build-sky-kernel
+name: Build Sky Kernel (Full ~44MB)
 
 on:
   workflow_dispatch:
