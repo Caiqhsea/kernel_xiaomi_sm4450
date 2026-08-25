@@ -40,18 +40,23 @@ jobs:
           echo 'dtb-$(CONFIG_ARCH_QCOM) += 06_dtbdump_Qualcomm_Technologies,_Inc._Parrot_SoC.dtb' >> arch/arm64/boot/dts/vendor/Makefile
           echo 'dtb-$(CONFIG_ARCH_QCOM) += 07_dtbdump_Qualcomm_Technologies,_Inc._ParrotP_SoC.dtb' >> arch/arm64/boot/dts/vendor/Makefile
 
-      - name: Remove hqsysfs Driver
+      - name: Remove hqsysfs Driver and Kconfig Reference
         run: |
           cd kernel_source
-          # 直接删除 hqsysfs 驱动目录（原机没有这个驱动）
-          if [ -d "drivers/misc/hqsysfs" ]; then
-            rm -rf drivers/misc/hqsysfs
-            echo "✅ hqsysfs driver removed"
+          # 删除 hqsysfs 目录
+          rm -rf drivers/misc/hqsysfs
+          echo "✅ hqsysfs directory removed"
+          
+          # 从 Kconfig 中删除 hqsysfs 引用
+          sed -i '/source "drivers\/misc\/hqsysfs\/Kconfig"/d' drivers/misc/Kconfig
+          echo "✅ hqsysfs reference removed from Kconfig"
+          
+          # 验证
+          if grep -q hqsys drivers/misc/Kconfig 2>/dev/null; then
+            echo "⚠️ hqsysfs still in Kconfig"
           else
-            echo "⚠️ hqsysfs directory not found"
+            echo "✅ hqsysfs completely removed"
           fi
-          # 验证删除
-          ls -la drivers/misc/ 2>/dev/null | grep -E "hqsys|ocp2131" || echo "检查完成"
 
       - name: Generate Defconfig
         run: |
