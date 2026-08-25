@@ -58,24 +58,4 @@ jobs:
         with:
           name: Kernel-Sky-Image
           path: ${{ github.workspace }}/out/arch/arm64/boot/Image
-          if-no-files-found: error          echo 'dtb-$(CONFIG_ARCH_QCOM) += 06_dtbdump_Qualcomm_Technologies,_Inc._Parrot_SoC.dtb' >> arch/arm64/boot/dts/vendor/Makefile
-          echo 'dtb-$(CONFIG_ARCH_QCOM) += 07_dtbdump_Qualcomm_Technologies,_Inc._ParrotP_SoC.dtb' >> arch/arm64/boot/dts/vendor/Makefile
-
-      - name: Generate Defconfig
-        run: |
-          cd kernel_source
-          # 禁止把警告当错误，让编译能够继续！
-          echo "CONFIG_CC_WERROR=n" >> arch/arm64/configs/vendor/parrot_consolidate.config
-          make O=$GITHUB_WORKSPACE/out vendor/parrot_consolidate.config
-
-      - name: Build Kernel
-        run: |
-          cd kernel_source
-          make O=$GITHUB_WORKSPACE/out -j$(nproc)
-
-      - name: Upload Kernel Image
-        uses: actions/upload-artifact@v4
-        with:
-          name: Kernel-Sky-Image
-          path: ${{ github.workspace }}/out/arch/arm64/boot/Image
           if-no-files-found: error
