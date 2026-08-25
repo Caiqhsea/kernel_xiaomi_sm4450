@@ -40,16 +40,15 @@ jobs:
           echo 'dtb-$(CONFIG_ARCH_QCOM) += 06_dtbdump_Qualcomm_Technologies,_Inc._Parrot_SoC.dtb' >> arch/arm64/boot/dts/vendor/Makefile
           echo 'dtb-$(CONFIG_ARCH_QCOM) += 07_dtbdump_Qualcomm_Technologies,_Inc._ParrotP_SoC.dtb' >> arch/arm64/boot/dts/vendor/Makefile
 
-      - name: Fix Makefile and Generate Defconfig
+      - name: Generate Defconfig
         run: |
           cd kernel_source
-          # 给驱动 Makefile 加上编译修复命令
-          echo 'subdir-ccflags-y += -I$(srctree)/include/linux' >> drivers/misc/ocp2131_bias/Makefile
-          echo 'subdir-ccflags-y += -include linux/i2c.h' >> drivers/misc/ocp2131_bias/Makefile
-          
-          # 在配置里强制开启这个驱动的编译开关
-          echo "CONFIG_OCP2131_BIAS=y" >> arch/arm64/configs/vendor/parrot_consolidate.config
-          make O=$GITHUB_WORKSPACE/out vendor/parrot_consolidate.config
+          # 确保驱动配置开启
+          if ! grep -q "CONFIG_OCP2131_BIAS" arch/arm64/configs/vendor/parrot_consolidate.config; then
+            echo "CONFIG_OCP2131_BIAS=y" >> arch/arm64/configs/vendor/parrot_consolidate.config
+          fi
+          # 生成配置
+          make O=$GITHUB_WORKSPACE/out ARCH=arm64 vendor/parrot_consolidate.config
 
       - name: Build Kernel
         run: |
