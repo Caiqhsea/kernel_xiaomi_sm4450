@@ -43,11 +43,10 @@ jobs:
       - name: Generate Defconfig
         run: |
           cd kernel_source
-          # 确保驱动配置开启
+          # 确保 OCP2131_BIAS 驱动配置开启
           if ! grep -q "CONFIG_OCP2131_BIAS" arch/arm64/configs/vendor/parrot_consolidate.config; then
             echo "CONFIG_OCP2131_BIAS=y" >> arch/arm64/configs/vendor/parrot_consolidate.config
           fi
-          # 生成配置
           make O=$GITHUB_WORKSPACE/out ARCH=arm64 vendor/parrot_consolidate.config
 
       - name: Build Kernel
