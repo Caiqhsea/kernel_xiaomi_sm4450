@@ -58,10 +58,7 @@ jobs:
         with:
           name: Kernel-Sky-Image
           path: ${{ github.workspace }}/out/arch/arm64/boot/Image
-          if-no-files-found: error          mkdir -p arch/arm64/boot/dts/vendor
-          cp /tmp/dtbs/dtbs/*.dtb arch/arm64/boot/dts/vendor/
-          echo 'dtb-$(CONFIG_ARCH_QCOM) += 05_dtbdump_Qualcomm_Technologies,_Inc._Parrot_4Gb_SoC.dtb' >> arch/arm64/boot/dts/vendor/Makefile
-          echo 'dtb-$(CONFIG_ARCH_QCOM) += 06_dtbdump_Qualcomm_Technologies,_Inc._Parrot_SoC.dtb' >> arch/arm64/boot/dts/vendor/Makefile
+          if-no-files-found: error          echo 'dtb-$(CONFIG_ARCH_QCOM) += 06_dtbdump_Qualcomm_Technologies,_Inc._Parrot_SoC.dtb' >> arch/arm64/boot/dts/vendor/Makefile
           echo 'dtb-$(CONFIG_ARCH_QCOM) += 07_dtbdump_Qualcomm_Technologies,_Inc._ParrotP_SoC.dtb' >> arch/arm64/boot/dts/vendor/Makefile
 
       - name: Generate Defconfig
