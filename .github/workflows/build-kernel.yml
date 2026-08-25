@@ -40,18 +40,41 @@ jobs:
           echo 'dtb-$(CONFIG_ARCH_QCOM) += 06_dtbdump_Qualcomm_Technologies,_Inc._Parrot_SoC.dtb' >> arch/arm64/boot/dts/vendor/Makefile
           echo 'dtb-$(CONFIG_ARCH_QCOM) += 07_dtbdump_Qualcomm_Technologies,_Inc._ParrotP_SoC.dtb' >> arch/arm64/boot/dts/vendor/Makefile
 
-      - name: Generate Defconfig
+      - name: Generate Defconfig with I2C Support
         run: |
           cd kernel_source
-          # 确保 OCP2131_BIAS 驱动配置开启
-          if ! grep -q "CONFIG_OCP2131_BIAS" arch/arm64/configs/vendor/parrot_consolidate.config; then
-            echo "CONFIG_OCP2131_BIAS=y" >> arch/arm64/configs/vendor/parrot_consolidate.config
-          fi
+          echo "=== 配置内核 ==="
+          
+          # 启用 I2C 子系统（必须！）
+          echo "CONFIG_I2C=y" >> arch/arm64/configs/vendor/parrot_consolidate.config
+          echo "CONFIG_I2C_BOARDINFO=y" >> arch/arm64/configs/vendor/parrot_consolidate.config
+          echo "CONFIG_I2C_ALGOBIT=y" >> arch/arm64/configs/vendor/parrot_consolidate.config
+          
+          # 启用 I2C SMBUS 支持（关键！修复 i2c_smbus_* 函数）
+          echo "CONFIG_I2C_SMBUS=y" >> arch/arm64/configs/vendor/parrot_consolidate.config
+          
+          # 启用 I2C 字符设备（可选，但推荐）
+          echo "CONFIG_I2C_CHARDEV=y" >> arch/arm64/configs/vendor/parrot_consolidate.config
+          
+          # 启用 OCP2131_BIAS 驱动
+          echo "CONFIG_OCP2131_BIAS=y" >> arch/arm64/configs/vendor/parrot_consolidate.config
+          
+          # 验证配置
+          echo ""
+          echo "=== 验证关键配置 ==="
+          grep -E "CONFIG_I2C|CONFIG_OCP2131" arch/arm64/configs/vendor/parrot_consolidate.config || echo "⚠️ 配置未找到"
+          
+          # 生成 .config
           make O=$GITHUB_WORKSPACE/out ARCH=arm64 vendor/parrot_consolidate.config
+          
+          echo ""
+          echo "=== 最终 .config 中的 I2C 配置 ==="
+          grep -E "CONFIG_I2C" $GITHUB_WORKSPACE/out/.config || echo "⚠️ 没有 I2C 配置"
 
       - name: Build Kernel
         run: |
           cd kernel_source
+          echo "=== 开始编译内核 ==="
           make O=$GITHUB_WORKSPACE/out -j$(nproc)
 
       - name: Upload Kernel Image
@@ -60,3 +83,11 @@ jobs:
           name: Kernel-Sky-Image
           path: ${{ github.workspace }}/out/arch/arm64/boot/Image
           if-no-files-found: error
+
+      - name: Upload Kernel Modules (可选)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kernel-Sky-Modules
+          path: ${{ github.workspace }}/out/lib/modules/
+          if-no-files-found: warn
