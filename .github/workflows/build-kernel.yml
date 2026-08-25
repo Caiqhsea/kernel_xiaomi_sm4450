@@ -1,0 +1,120 @@
+name: Build Sky Kernel (Full ~44MB)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            bc bison build-essential ccache cpio curl device-tree-compiler flex \
+            git libelf-dev libssl-dev lz4 make python3 rsync unzip zip zstd \
+            libncurses-dev gcc-aarch64-linux-gnu lld llvm
+
+      - name: Checkout Kernel Source
+        run: |
+          git clone --depth=1 https://github.com/Caiqhsea/kernel_xiaomi_sm4450.git kernel_source
+
+      - name: Set Environment Variables
+        run: |
+          echo "ARCH=arm64" >> $GITHUB_ENV
+          echo "CC=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+          echo "LD=ld.lld" >> $GITHUB_ENV
+          echo "AR=aarch64-linux-gnu-ar" >> $GITHUB_ENV
+          echo "LLVM=0" >> $GITHUB_ENV
+          echo "CROSS_COMPILE=aarch64-linux-gnu-" >> $GITHUB_ENV
+
+      - name: Fix Device Tree Makefile
+        run: |
+          cd kernel_source
+          git clone --depth=1 -b 16 https://github.com/Caiqhsea/device_xiaomi_sky-kernel.git /tmp/dtbs
+          rm -rf arch/arm64/boot/dts/vendor
+          mkdir -p arch/arm64/boot/dts/vendor
+          cp /tmp/dtbs/dtbs/*.dtb arch/arm64/boot/dts/vendor/
+          cd arch/arm64/boot/dts/vendor
+          echo "# Auto-generated - Universal DTBs" > Makefile
+          for dtb in *.dtb; do
+            echo "dtb-\$(CONFIG_ARCH_QCOM) += $dtb" >> Makefile
+          done
+          echo "✅ $(ls *.dtb | wc -l) DTBs prepared"
+
+      - name: Remove hqsysfs Driver
+        run: |
+          cd kernel_source
+          rm -rf drivers/misc/hqsysfs
+          sed -i '/source "drivers\/misc\/hqsysfs\/Kconfig"/d' drivers/misc/Kconfig
+          sed -i '/obj-$(CONFIG_HQSYSFS)/d' drivers/misc/Makefile
+          sed -i '/hqsysfs/d' drivers/misc/Makefile
+          echo "✅ hqsysfs removed"
+
+      - name: Generate Full Defconfig
+        run: |
+          cd kernel_source
+          
+          # 清理源码
+          make mrproper
+          
+          echo "=== 生成完整配置 ==="
+          
+          # 1. 基础 GKI
+          make O=$GITHUB_WORKSPACE/out ARCH=arm64 gki_defconfig
+          
+          # 2. parrot_GKI（高通平台完整驱动）
+          make O=$GITHUB_WORKSPACE/out ARCH=arm64 vendor/parrot_GKI.config
+          
+          # 3. parrot_consolidate（小米厂商调整）
+          make O=$GITHUB_WORKSPACE/out ARCH=arm64 vendor/parrot_consolidate.config
+          
+          cd $GITHUB_WORKSPACE/out
+          
+          # 清理冲突配置
+          sed -i '/CONFIG_MODULES/d' .config
+          sed -i '/CONFIG_OCP2131_BIAS/d' .config
+          sed -i '/CONFIG_I2C_SMBUS/d' .config
+          sed -i '/CONFIG_I2C_CHARDEV/d' .config
+          
+          # 添加正确配置
+          echo "# CONFIG_MODULES is not set" >> .config
+          echo "CONFIG_OCP2131_BIAS=y" >> .config
+          echo "CONFIG_I2C_SMBUS=y" >> .config
+          echo "CONFIG_I2C_CHARDEV=y" >> .config
+          
+          # 重新生成
+          make ARCH=arm64 olddefconfig
+          
+          echo ""
+          echo "=== 验证配置 ==="
+          echo "配置行数："
+          wc -l .config
+          echo ""
+          echo "模块状态："
+          grep "CONFIG_MODULES" .config || echo "✅ 已禁用"
+          echo ""
+          echo "OCP2131："
+          grep "CONFIG_OCP2131" .config
+
+      - name: Build Kernel
+        run: |
+          cd kernel_source
+          echo "=== 编译完整内核 ==="
+          make O=$GITHUB_WORKSPACE/out -j$(nproc)
+          
+          echo ""
+          echo "=== Image 大小 ==="
+          ls -lh $GITHUB_WORKSPACE/out/arch/arm64/boot/Image
+          
+          echo ""
+          echo "=== 检查模块（应该没有） ==="
+          find $GITHUB_WORKSPACE/out -name "*.ko" 2>/dev/null | wc -l
+
+      - name: Upload Kernel Image
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kernel-Image-Full
+          path: ${{ github.workspace }}/out/arch/arm64/boot/Image
+          if-no-files-found: error
