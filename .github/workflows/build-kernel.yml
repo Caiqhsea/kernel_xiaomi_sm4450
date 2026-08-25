@@ -1,4 +1,4 @@
-name: Build Sky Kernel
+name: Build Sky Kernel (Full ~44MB)
 
 on:
   workflow_dispatch:
@@ -36,11 +36,15 @@ jobs:
           rm -rf arch/arm64/boot/dts/vendor
           mkdir -p arch/arm64/boot/dts/vendor
           cp /tmp/dtbs/dtbs/*.dtb arch/arm64/boot/dts/vendor/
-          echo 'dtb-$(CONFIG_ARCH_QCOM) += 05_dtbdump_Qualcomm_Technologies,_Inc._Parrot_4Gb_SoC.dtb' >> arch/arm64/boot/dts/vendor/Makefile
-          echo 'dtb-$(CONFIG_ARCH_QCOM) += 06_dtbdump_Qualcomm_Technologies,_Inc._Parrot_SoC.dtb' >> arch/arm64/boot/dts/vendor/Makefile
-          echo 'dtb-$(CONFIG_ARCH_QCOM) += 07_dtbdump_Qualcomm_Technologies,_Inc._ParrotP_SoC.dtb' >> arch/arm64/boot/dts/vendor/Makefile
+          
+          # 添加所有 dtb 文件
+          cd arch/arm64/boot/dts/vendor
+          for dtb in *.dtb; do
+            echo "dtb-\$(CONFIG_ARCH_QCOM) += $dtb" >> Makefile
+          done
+          echo "✅ All dtb files added"
 
-      - name: Remove hqsysfs Driver Completely
+      - name: Remove hqsysfs Driver
         run: |
           cd kernel_source
           rm -rf drivers/misc/hqsysfs
@@ -49,78 +53,70 @@ jobs:
           sed -i '/hqsysfs/d' drivers/misc/Makefile
           echo "✅ hqsysfs removed"
 
-      - name: Generate Defconfig
+      - name: Generate Full Defconfig
         run: |
           cd kernel_source
-          echo "=== 配置内核 ==="
+          echo "=== 生成最完整配置 ==="
           
-          # 启用模块支持（必须！）
-          echo "CONFIG_MODULES=y" >> arch/arm64/configs/vendor/parrot_consolidate.config
-          echo "CONFIG_MODULES_UNLOAD=y" >> arch/arm64/configs/vendor/parrot_consolidate.config
+          # 1. 基础 GKI
+          make O=$GITHUB_WORKSPACE/out ARCH=arm64 gki_defconfig
           
-          # 启用 I2C 支持
-          echo "CONFIG_I2C=y" >> arch/arm64/configs/vendor/parrot_consolidate.config
-          echo "CONFIG_I2C_BOARDINFO=y" >> arch/arm64/configs/vendor/parrot_consolidate.config
-          echo "CONFIG_I2C_ALGOBIT=y" >> arch/arm64/configs/vendor/parrot_consolidate.config
-          echo "CONFIG_I2C_SMBUS=y" >> arch/arm64/configs/vendor/parrot_consolidate.config
-          echo "CONFIG_I2C_CHARDEV=y" >> arch/arm64/configs/vendor/parrot_consolidate.config
+          # 2. parrot_GKI（高通平台完整驱动）
+          make O=$GITHUB_WORKSPACE/out ARCH=arm64 vendor/parrot_GKI.config
           
-          # 启用 OCP2131_BIAS 驱动
-          echo "CONFIG_OCP2131_BIAS=y" >> arch/arm64/configs/vendor/parrot_consolidate.config
-          
-          echo ""
-          echo "=== 验证关键配置 ==="
-          grep -E "CONFIG_MODULES|CONFIG_I2C|CONFIG_OCP2131" arch/arm64/configs/vendor/parrot_consolidate.config
-          
+          # 3. parrot_consolidate（小米厂商调整）
           make O=$GITHUB_WORKSPACE/out ARCH=arm64 vendor/parrot_consolidate.config
           
+          # 4. 禁用模块 → 所有驱动编译进内核
+          echo "# CONFIG_MODULES is not set" >> $GITHUB_WORKSPACE/out/.config
+          
+          # 5. 添加 OCP2131 和 I2C_SMBUS
+          echo "CONFIG_I2C_SMBUS=y" >> $GITHUB_WORKSPACE/out/.config
+          echo "CONFIG_I2C_CHARDEV=y" >> $GITHUB_WORKSPACE/out/.config
+          echo "CONFIG_OCP2131_BIAS=y" >> $GITHUB_WORKSPACE/out/.config
+          
+          # 6. 重新生成
+          make ARCH=arm64 olddefconfig
+          
           echo ""
-          echo "=== 最终 .config 中的模块配置 ==="
-          grep "CONFIG_MODULES" $GITHUB_WORKSPACE/out/.config
+          echo "=== 验证配置 ==="
+          echo "配置行数："
+          wc -l $GITHUB_WORKSPACE/out/.config
+          echo ""
+          echo "模块状态："
+          grep "CONFIG_MODULES" $GITHUB_WORKSPACE/out/.config || echo "✅ 已禁用"
+          echo ""
+          echo "OCP2131："
+          grep "CONFIG_OCP2131" $GITHUB_WORKSPACE/out/.config
 
-      - name: Build Kernel and Modules
+      - name: Build Kernel
         run: |
           cd kernel_source
-          echo "=== 1. 编译内核 (Image) ==="
+          echo "=== 编译完整内核 ==="
           make O=$GITHUB_WORKSPACE/out -j$(nproc)
           
           echo ""
-          echo "=== 2. 编译设备树 (dtbs) ==="
-          make O=$GITHUB_WORKSPACE/out dtbs -j$(nproc)
-          
-          echo ""
-          echo "=== 3. 编译内核模块 (modules) ==="
-          make O=$GITHUB_WORKSPACE/out modules -j$(nproc)
-          
-          echo ""
-          echo "=== 4. 安装模块 ==="
-          make O=$GITHUB_WORKSPACE/out modules_install INSTALL_MOD_PATH=$GITHUB_WORKSPACE/out/modules
-          
-          echo ""
-          echo "=== 5. 检查结果 ==="
-          echo "Image 大小："
+          echo "=== Image 大小 ==="
           ls -lh $GITHUB_WORKSPACE/out/arch/arm64/boot/Image
+          
           echo ""
-          echo "模块数量："
-          find $GITHUB_WORKSPACE/out/modules -name "*.ko" 2>/dev/null | wc -l
+          echo "=== 检查模块（应该没有） ==="
+          find $GITHUB_WORKSPACE/out -name "*.ko" 2>/dev/null | wc -l
+          
+          echo ""
+          echo "=== DTB 文件数量 ==="
+          find $GITHUB_WORKSPACE/out/arch/arm64/boot/dts -name "*.dtb" 2>/dev/null | wc -l
 
       - name: Upload Kernel Image
         uses: actions/upload-artifact@v4
         with:
-          name: Kernel-Image
+          name: Kernel-Image-Full
           path: ${{ github.workspace }}/out/arch/arm64/boot/Image
           if-no-files-found: error
-
-      - name: Upload Kernel Modules
-        uses: actions/upload-artifact@v4
-        with:
-          name: Kernel-Modules
-          path: ${{ github.workspace }}/out/modules/
-          if-no-files-found: warn
 
       - name: Upload Device Tree Blobs
         uses: actions/upload-artifact@v4
         with:
-          name: Kernel-DTBS
+          name: Kernel-DTBS-Full
           path: ${{ github.workspace }}/out/arch/arm64/boot/dts/
           if-no-files-found: warn
