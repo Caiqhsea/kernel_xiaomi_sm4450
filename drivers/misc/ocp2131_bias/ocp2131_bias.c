@@ -1,15 +1,17 @@
-#include <linux/of.h>
-#include <linux/of_address.h>
-#include <linux/of_device.h>
-#include <linux/of_gpio.h>
-#include <linux/of_irq.h>
-#include <linux/gpio.h>
-#include <linux/i2c.h>
+##include <linux/module.h>
 #include <linux/init.h>
-#include <linux/interrupt.h>
-#include <linux/module.h>
+#include <linux/i2c.h>
+#include <linux/gpio.h>
+#include <linux/of.h>
+#include <linux/of_gpio.h>
+#include <linux/of_device.h>
+#include <linux/slab.h>
+#include <linux/mutex.h>
+#include <linux/pm.h>
 #include <linux/delay.h>
-#include <linux/ocp2131_bias.h>
+#include <linux/device.h>
+#include <linux/err.h>
+#include "ocp2131_bias.h" 
 #define OCP2131_Positive_Output	0X00
 #define OCP2131_Negative_Output	0X01
 #define OCP2131_Set_voltage	0x0F
