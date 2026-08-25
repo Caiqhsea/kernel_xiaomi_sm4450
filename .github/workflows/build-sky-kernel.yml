@@ -1,4 +1,4 @@
-name: Build Sky Kernel 
+name: build-sky-kernel
 
 on:
   workflow_dispatch:
@@ -157,3 +157,33 @@ EOF
           BUILD_STATUS=${PIPESTATUS[0]}
           
           if [ $BUILD_STATUS -ne 0 ]; then
+            echo "=== 编译失败，查找错误 ==="
+            grep -i "error\|undefined\|fatal" $GITHUB_WORKSPACE/build.log | tail -50
+            exit $BUILD_STATUS
+          fi
+          
+          echo ""
+          echo "=== Image 大小 ==="
+          ls -lh $GITHUB_WORKSPACE/out/arch/arm64/boot/Image
+          
+          echo ""
+          echo "=== 检查模块（应该没有） ==="
+          find $GITHUB_WORKSPACE/out -name "*.ko" 2>/dev/null | wc -l
+          
+          echo ""
+          echo "=== 编译成功！==="
+
+      - name: Upload Kernel Image
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kernel-Image-Full
+          path: ${{ github.workspace }}/out/arch/arm64/boot/Image
+          if-no-files-found: error
+
+      - name: Upload Build Log (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: ${{ github.workspace }}/build.log
+          if-no-files-found: ignore
