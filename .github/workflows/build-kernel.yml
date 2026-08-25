@@ -1,0 +1,54 @@
+name: Build Sky Kernel
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            bc bison build-essential ccache cpio curl device-tree-compiler flex \
+            git libelf-dev libssl-dev lz4 make python3 rsync unzip zip zstd \
+            libncurses-dev gcc-aarch64-linux-gnu
+
+      - name: Checkout Kernel Source
+        run: |
+          git clone --depth=1 https://github.com/Caiqhsea/kernel_xiaomi_sm4450.git kernel_source
+
+      - name: Set Environment Variables
+        run: |
+          echo "ARCH=arm64" >> $GITHUB_ENV
+          echo "CC=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+          echo "LD=aarch64-linux-gnu-ld" >> $GITHUB_ENV
+          echo "AR=aarch64-linux-gnu-ar" >> $GITHUB_ENV
+          echo "LLVM=0" >> $GITHUB_ENV
+          echo "CROSS_COMPILE=aarch64-linux-gnu-" >> $GITHUB_ENV
+
+      - name: Fix Device Tree Makefile
+        run: |
+          cd kernel_source
+          echo 'dtb-$(CONFIG_ARCH_QCOM) += 05_dtbdump_Qualcomm_Technologies,_Inc._Parrot_4Gb_SoC.dtb' >> arch/arm64/boot/dts/vendor/Makefile
+          echo 'dtb-$(CONFIG_ARCH_QCOM) += 06_dtbdump_Qualcomm_Technologies,_Inc._Parrot_SoC.dtb' >> arch/arm64/boot/dts/vendor/Makefile
+          echo 'dtb-$(CONFIG_ARCH_QCOM) += 07_dtbdump_Qualcomm_Technologies,_Inc._ParrotP_SoC.dtb' >> arch/arm64/boot/dts/vendor/Makefile
+
+      - name: Generate Defconfig
+        run: |
+          cd kernel_source
+          make O=$GITHUB_WORKSPACE/out vendor/parrot_consolidate.config
+
+      - name: Build Kernel
+        run: |
+          cd kernel_source
+          make O=$GITHUB_WORKSPACE/out -j$(nproc)
+
+      - name: Upload Kernel Image
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kernel-Sky-Image
+          path: ${{ github.workspace }}/out/arch/arm64/boot/Image
+          if-no-files-found: error
