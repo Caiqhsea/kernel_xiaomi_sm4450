@@ -29,38 +29,6 @@ jobs:
           echo "LLVM=0" >> $GITHUB_ENV
           echo "CROSS_COMPILE=aarch64-linux-gnu-" >> $GITHUB_ENV
 
-      - name: Fix Device Tree Makefile
-        run: |
-          cd kernel_source
-          
-          # 克隆 dtb 仓库
-          git clone --depth=1 -b 16 https://github.com/Caiqhsea/device_xiaomi_sky-kernel.git /tmp/dtbs
-          
-          # 完全删除 vendor 目录
-          rm -rf arch/arm64/boot/dts/vendor
-          
-          # 重建目录
-          mkdir -p arch/arm64/boot/dts/vendor
-          
-          # 复制所有 dtb 文件（01-11）
-          cp /tmp/dtbs/dtbs/*.dtb arch/arm64/boot/dts/vendor/
-          
-          # 进入目录，生成 Makefile
-          cd arch/arm64/boot/dts/vendor
-          
-          # 用覆盖方式写入 Makefile
-          echo "# Auto-generated - DO NOT EDIT" > Makefile
-          
-          # 遍历所有 dtb 文件
-          for dtb in $(ls *.dtb | sort); do
-            echo "dtb-\$(CONFIG_ARCH_QCOM) += $dtb" >> Makefile
-          done
-          
-          echo "=== 生成的 Makefile ==="
-          cat Makefile
-          echo ""
-          echo "✅ $(ls *.dtb | wc -l) DTBs added"
-
       - name: Remove hqsysfs Driver
         run: |
           cd kernel_source
@@ -74,35 +42,26 @@ jobs:
         run: |
           cd kernel_source
           
-          # 清理源码
           make mrproper
           
           echo "=== 生成完整配置 ==="
           
-          # 1. 基础 GKI
           make O=$GITHUB_WORKSPACE/out ARCH=arm64 gki_defconfig
-          
-          # 2. parrot_GKI（高通平台完整驱动）
           make O=$GITHUB_WORKSPACE/out ARCH=arm64 vendor/parrot_GKI.config
-          
-          # 3. parrot_consolidate（小米厂商调整）
           make O=$GITHUB_WORKSPACE/out ARCH=arm64 vendor/parrot_consolidate.config
           
           cd $GITHUB_WORKSPACE/out
           
-          # 清理冲突配置
           sed -i '/CONFIG_MODULES/d' .config
           sed -i '/CONFIG_OCP2131_BIAS/d' .config
           sed -i '/CONFIG_I2C_SMBUS/d' .config
           sed -i '/CONFIG_I2C_CHARDEV/d' .config
           
-          # 添加正确配置
           echo "# CONFIG_MODULES is not set" >> .config
           echo "CONFIG_OCP2131_BIAS=y" >> .config
           echo "CONFIG_I2C_SMBUS=y" >> .config
           echo "CONFIG_I2C_CHARDEV=y" >> .config
           
-          # 重新生成
           make ARCH=arm64 olddefconfig
           
           echo ""
