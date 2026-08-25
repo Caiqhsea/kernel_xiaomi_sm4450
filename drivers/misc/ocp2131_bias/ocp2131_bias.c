@@ -11,7 +11,7 @@
 #include <linux/delay.h>
 #include <linux/device.h>
 #include <linux/err.h>
-#include "ocp2131_bias.h" 
+#include <linux/ocp2131_bias.h> 
 #define OCP2131_Positive_Output	0X00
 #define OCP2131_Negative_Output	0X01
 #define OCP2131_Set_voltage	0x0F
