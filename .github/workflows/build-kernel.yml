@@ -1,4 +1,40 @@
-build-kernel.yml          mkdir -p arch/arm64/boot/dts/vendor
+name: Build Sky Kernel
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            bc bison build-essential ccache cpio curl device-tree-compiler flex \
+            git libelf-dev libssl-dev lz4 make python3 rsync unzip zip zstd \
+            libncurses-dev gcc-aarch64-linux-gnu lld llvm
+
+      - name: Checkout Kernel Source
+        run: |
+          git clone --depth=1 https://github.com/Caiqhsea/kernel_xiaomi_sm4450.git kernel_source
+
+      - name: Set Environment Variables
+        run: |
+          echo "ARCH=arm64" >> $GITHUB_ENV
+          echo "CC=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+          echo "LD=ld.lld" >> $GITHUB_ENV
+          echo "AR=aarch64-linux-gnu-ar" >> $GITHUB_ENV
+          echo "LLVM=0" >> $GITHUB_ENV
+          echo "CROSS_COMPILE=aarch64-linux-gnu-" >> $GITHUB_ENV
+
+      - name: Fix Device Tree Makefile
+        run: |
+          cd kernel_source
+          git clone --depth=1 -b 16 https://github.com/Caiqhsea/device_xiaomi_sky-kernel.git /tmp/dtbs
+          rm -rf arch/arm64/boot/dts/vendor
+          mkdir -p arch/arm64/boot/dts/vendor
           cp /tmp/dtbs/dtbs/*.dtb arch/arm64/boot/dts/vendor/
           echo 'dtb-$(CONFIG_ARCH_QCOM) += 05_dtbdump_Qualcomm_Technologies,_Inc._Parrot_4Gb_SoC.dtb' >> arch/arm64/boot/dts/vendor/Makefile
           echo 'dtb-$(CONFIG_ARCH_QCOM) += 06_dtbdump_Qualcomm_Technologies,_Inc._Parrot_SoC.dtb' >> arch/arm64/boot/dts/vendor/Makefile
@@ -13,42 +49,6 @@ build-kernel.yml          mkdir -p arch/arm64/boot/dts/vendor
           
           # 在配置里强制开启这个驱动的编译开关
           echo "CONFIG_OCP2131_BIAS=y" >> arch/arm64/configs/vendor/parrot_consolidate.config
-          make O=$GITHUB_WORKSPACE/out vendor/parrot_consolidate.config
-
-      - name: Build Kernel
-        run: |
-          cd kernel_source
-          make O=$GITHUB_WORKSPACE/out -j$(nproc)
-
-      - name: Upload Kernel Image
-        uses: actions/upload-artifact@v4
-        with:
-          name: Kernel-Sky-Image
-          path: ${{ github.workspace }}/out/arch/arm64/boot/Image
-          if-no-files-found: error          mkdir -p arch/arm64/boot/dts/vendor
-          cp /tmp/dtbs/dtbs/*.dtb arch/arm64/boot/dts/vendor/
-          echo 'dtb-$(CONFIG_ARCH_QCOM) += 05_dtbdump_Qualcomm_Technologies,_Inc._Parrot_4Gb_SoC.dtb' >> arch/arm64/boot/dts/vendor/Makefile
-          echo 'dtb-$(CONFIG_ARCH_QCOM) += 06_dtbdump_Qualcomm_Technologies,_Inc._Parrot_SoC.dtb' >> arch/arm64/boot/dts/vendor/Makefile
-          echo 'dtb-$(CONFIG_ARCH_QCOM) += 07_dtbdump_Qualcomm_Technologies,_Inc._ParrotP_SoC.dtb' >> arch/arm64/boot/dts/vendor/Makefile
-
-      - name: Manually Fix Source Code and Generate Defconfig
-        run: |
-          cd kernel_source
-          # 使用 Python 精准修改源码，绝对不丢字符
-          python3 - << 'EOF'
-          # 1. 补上头文件
-          with open('drivers/misc/ocp2131_bias/ocp2131_bias.c', 'r') as f:
-              content = f.read()
-          if '#include <linux/i2c.h>' not in content:
-              content = '#include <linux/i2c.h>\n' + content
-          with open('drivers/misc/ocp2131_bias/ocp2131_bias.c', 'w') as f:
-              f.write(content)
-          
-          # 2. 修改该驱动的 Makefile 让它不再拦截警告
-          with open('drivers/misc/ocp2131_bias/Makefile', 'a') as f:
-              f.write('\nsubdir-ccflags-y += -Wno-error\n')
-          print("源代码修复完成！")
-          EOF
           make O=$GITHUB_WORKSPACE/out vendor/parrot_consolidate.config
 
       - name: Build Kernel
