@@ -33,20 +33,30 @@ jobs:
         run: |
           cd kernel_source
           git clone --depth=1 -b 16 https://github.com/Caiqhsea/device_xiaomi_sky-kernel.git /tmp/dtbs
+          
+          # 完全删除并重建 vendor 目录
           rm -rf arch/arm64/boot/dts/vendor
           mkdir -p arch/arm64/boot/dts/vendor
+          
+          # 复制所有 dtb 文件（01-11）
           cp /tmp/dtbs/dtbs/*.dtb arch/arm64/boot/dts/vendor/
           
-          # 直接覆盖生成 Makefile（不是追加！）
+          # 进入目录生成 Makefile
           cd arch/arm64/boot/dts/vendor
+          
+          # 覆盖写入 Makefile
           echo "# Auto-generated - DO NOT EDIT" > Makefile
-          for dtb in *.dtb; do
+          for dtb in $(ls *.dtb | sort); do
             echo "dtb-\$(CONFIG_ARCH_QCOM) += $dtb" >> Makefile
           done
           
           echo "=== 生成的 Makefile ==="
           cat Makefile
+          echo ""
           echo "✅ $(ls *.dtb | wc -l) DTBs added"
+          echo ""
+          echo "=== 文件列表 ==="
+          ls -la *.dtb
 
       - name: Remove hqsysfs Driver
         run: |
