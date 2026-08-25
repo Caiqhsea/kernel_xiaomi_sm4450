@@ -32,6 +32,10 @@ jobs:
       - name: Fix Device Tree Makefile
         run: |
           cd kernel_source
+          # 从你自己复刻的仓库里下载那11个原厂设备树
+          git clone --depth=1 -b 16 https://github.com/Caiqhsea/device_xiaomi_sky-kernel.git /tmp/dtbs
+          cp /tmp/dtbs/dtbs/*.dtb arch/arm64/boot/dts/vendor/
+          # 加进编译列表（Parrot 核心，可能带 4GB 或完整版）
           echo 'dtb-$(CONFIG_ARCH_QCOM) += 05_dtbdump_Qualcomm_Technologies,_Inc._Parrot_4Gb_SoC.dtb' >> arch/arm64/boot/dts/vendor/Makefile
           echo 'dtb-$(CONFIG_ARCH_QCOM) += 06_dtbdump_Qualcomm_Technologies,_Inc._Parrot_SoC.dtb' >> arch/arm64/boot/dts/vendor/Makefile
           echo 'dtb-$(CONFIG_ARCH_QCOM) += 07_dtbdump_Qualcomm_Technologies,_Inc._ParrotP_SoC.dtb' >> arch/arm64/boot/dts/vendor/Makefile
