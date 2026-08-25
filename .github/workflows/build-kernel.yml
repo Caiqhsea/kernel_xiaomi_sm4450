@@ -40,9 +40,19 @@ jobs:
           echo 'dtb-$(CONFIG_ARCH_QCOM) += 06_dtbdump_Qualcomm_Technologies,_Inc._Parrot_SoC.dtb' >> arch/arm64/boot/dts/vendor/Makefile
           echo 'dtb-$(CONFIG_ARCH_QCOM) += 07_dtbdump_Qualcomm_Technologies,_Inc._ParrotP_SoC.dtb' >> arch/arm64/boot/dts/vendor/Makefile
 
-      - name: Generate Defconfig
+      - name: Fix I2C Header and Generate Defconfig
         run: |
           cd kernel_source
+          # 使用 Python 精准地把缺失的 I2C 头文件插入到驱动文件第一行
+          python3 - << 'EOF'
+          with open('drivers/misc/ocp2131_bias/ocp2131_bias.c', 'r') as f:
+              content = f.read()
+          if '#include <linux/i2c.h>' not in content:
+              content = '#include <linux/i2c.h>\n' + content
+          with open('drivers/misc/ocp2131_bias/ocp2131_bias.c', 'w') as f:
+              f.write(content)
+          print("头文件已成功插入！")
+          EOF
           make O=$GITHUB_WORKSPACE/out vendor/parrot_consolidate.config
 
       - name: Build Kernel
