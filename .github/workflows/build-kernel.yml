@@ -43,31 +43,22 @@ jobs:
       - name: Remove hqsysfs Driver Completely
         run: |
           cd kernel_source
-          # 删除 hqsysfs 目录
           rm -rf drivers/misc/hqsysfs
-          echo "✅ hqsysfs directory removed"
-          
-          # 从 Kconfig 中删除引用
           sed -i '/source "drivers\/misc\/hqsysfs\/Kconfig"/d' drivers/misc/Kconfig
-          echo "✅ hqsysfs removed from Kconfig"
-          
-          # 从 Makefile 中删除引用
           sed -i '/obj-$(CONFIG_HQSYSFS)/d' drivers/misc/Makefile
           sed -i '/hqsysfs/d' drivers/misc/Makefile
-          echo "✅ hqsysfs removed from Makefile"
-          
-          # 验证
-          echo "=== 验证删除 ==="
-          grep -i hqsys drivers/misc/Makefile 2>/dev/null || echo "✅ Makefile 干净"
-          grep -i hqsys drivers/misc/Kconfig 2>/dev/null || echo "✅ Kconfig 干净"
-          ls -la drivers/misc/ | grep hqsys || echo "✅ 目录已删除"
+          echo "✅ hqsysfs removed"
 
       - name: Generate Defconfig
         run: |
           cd kernel_source
           echo "=== 配置内核 ==="
           
-          # 启用 I2C 支持（OCP2131 依赖）
+          # 启用模块支持（必须！）
+          echo "CONFIG_MODULES=y" >> arch/arm64/configs/vendor/parrot_consolidate.config
+          echo "CONFIG_MODULES_UNLOAD=y" >> arch/arm64/configs/vendor/parrot_consolidate.config
+          
+          # 启用 I2C 支持
           echo "CONFIG_I2C=y" >> arch/arm64/configs/vendor/parrot_consolidate.config
           echo "CONFIG_I2C_BOARDINFO=y" >> arch/arm64/configs/vendor/parrot_consolidate.config
           echo "CONFIG_I2C_ALGOBIT=y" >> arch/arm64/configs/vendor/parrot_consolidate.config
@@ -79,13 +70,13 @@ jobs:
           
           echo ""
           echo "=== 验证关键配置 ==="
-          grep -E "CONFIG_I2C|CONFIG_OCP2131" arch/arm64/configs/vendor/parrot_consolidate.config
+          grep -E "CONFIG_MODULES|CONFIG_I2C|CONFIG_OCP2131" arch/arm64/configs/vendor/parrot_consolidate.config
           
           make O=$GITHUB_WORKSPACE/out ARCH=arm64 vendor/parrot_consolidate.config
           
           echo ""
-          echo "=== 最终 .config 中的 I2C 配置 ==="
-          grep "CONFIG_I2C" $GITHUB_WORKSPACE/out/.config | head -10
+          echo "=== 最终 .config 中的模块配置 ==="
+          grep "CONFIG_MODULES" $GITHUB_WORKSPACE/out/.config
 
       - name: Build Kernel and Modules
         run: |
@@ -102,22 +93,16 @@ jobs:
           make O=$GITHUB_WORKSPACE/out modules -j$(nproc)
           
           echo ""
-          echo "=== 4. 安装模块到输出目录 ==="
+          echo "=== 4. 安装模块 ==="
           make O=$GITHUB_WORKSPACE/out modules_install INSTALL_MOD_PATH=$GITHUB_WORKSPACE/out/modules
           
           echo ""
-          echo "=== 5. 检查编译结果 ==="
+          echo "=== 5. 检查结果 ==="
           echo "Image 大小："
           ls -lh $GITHUB_WORKSPACE/out/arch/arm64/boot/Image
           echo ""
           echo "模块数量："
           find $GITHUB_WORKSPACE/out/modules -name "*.ko" 2>/dev/null | wc -l
-          echo ""
-          echo "模块目录大小："
-          du -sh $GITHUB_WORKSPACE/out/modules/ 2>/dev/null || echo "没有模块目录"
-          echo ""
-          echo "设备树文件："
-          find $GITHUB_WORKSPACE/out/arch/arm64/boot/dts -name "*.dtb" 2>/dev/null | head -5
 
       - name: Upload Kernel Image
         uses: actions/upload-artifact@v4
@@ -138,25 +123,4 @@ jobs:
         with:
           name: Kernel-DTBS
           path: ${{ github.workspace }}/out/arch/arm64/boot/dts/
-          if-no-files-found: warn
-
-      - name: Upload Full Kernel Build (所有文件打包)
-        if: always()
-        run: |
-          cd $GITHUB_WORKSPACE/out
-          zip -r $GITHUB_WORKSPACE/full-kernel-build.zip \
-            arch/arm64/boot/Image \
-            arch/arm64/boot/dts/ \
-            modules/ \
-            .config \
-            2>/dev/null || echo "部分文件不存在"
-          echo "完整内核包大小："
-          ls -lh $GITHUB_WORKSPACE/full-kernel-build.zip 2>/dev/null || echo "打包失败"
-
-      - name: Upload Full Kernel Build
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: Full-Kernel-Build
-          path: ${{ github.workspace }}/full-kernel-build.zip
           if-no-files-found: warn
