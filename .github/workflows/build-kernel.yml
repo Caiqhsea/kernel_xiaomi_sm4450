@@ -36,8 +36,6 @@ jobs:
           rm -rf arch/arm64/boot/dts/vendor
           mkdir -p arch/arm64/boot/dts/vendor
           cp /tmp/dtbs/dtbs/*.dtb arch/arm64/boot/dts/vendor/
-          
-          # 添加所有 dtb 文件
           cd arch/arm64/boot/dts/vendor
           for dtb in *.dtb; do
             echo "dtb-\$(CONFIG_ARCH_QCOM) += $dtb" >> Makefile
@@ -56,24 +54,33 @@ jobs:
       - name: Generate Full Defconfig
         run: |
           cd kernel_source
+          
+          # 清理源码
+          make mrproper
+          
           echo "=== 生成最完整配置 ==="
           
           # 1. 基础 GKI
           make O=$GITHUB_WORKSPACE/out ARCH=arm64 gki_defconfig
           
-          # 2. parrot_GKI（高通平台完整驱动）
+          # 2. parrot_GKI
           make O=$GITHUB_WORKSPACE/out ARCH=arm64 vendor/parrot_GKI.config
           
-          # 3. parrot_consolidate（小米厂商调整）
+          # 3. parrot_consolidate
           make O=$GITHUB_WORKSPACE/out ARCH=arm64 vendor/parrot_consolidate.config
           
-          # 4. 禁用模块 → 所有驱动编译进内核
-          echo "# CONFIG_MODULES is not set" >> $GITHUB_WORKSPACE/out/.config
+          # 4. 清理冲突配置
+          cd $GITHUB_WORKSPACE/out
+          sed -i '/CONFIG_MODULES/d' .config
+          sed -i '/CONFIG_OCP2131_BIAS/d' .config
+          sed -i '/CONFIG_I2C_SMBUS/d' .config
+          sed -i '/CONFIG_I2C_CHARDEV/d' .config
           
-          # 5. 添加 OCP2131 和 I2C_SMBUS
-          echo "CONFIG_I2C_SMBUS=y" >> $GITHUB_WORKSPACE/out/.config
-          echo "CONFIG_I2C_CHARDEV=y" >> $GITHUB_WORKSPACE/out/.config
-          echo "CONFIG_OCP2131_BIAS=y" >> $GITHUB_WORKSPACE/out/.config
+          # 5. 添加正确配置
+          echo "# CONFIG_MODULES is not set" >> .config
+          echo "CONFIG_OCP2131_BIAS=y" >> .config
+          echo "CONFIG_I2C_SMBUS=y" >> .config
+          echo "CONFIG_I2C_CHARDEV=y" >> .config
           
           # 6. 重新生成
           make ARCH=arm64 olddefconfig
@@ -81,13 +88,13 @@ jobs:
           echo ""
           echo "=== 验证配置 ==="
           echo "配置行数："
-          wc -l $GITHUB_WORKSPACE/out/.config
+          wc -l .config
           echo ""
           echo "模块状态："
-          grep "CONFIG_MODULES" $GITHUB_WORKSPACE/out/.config || echo "✅ 已禁用"
+          grep "CONFIG_MODULES" .config || echo "✅ 已禁用"
           echo ""
           echo "OCP2131："
-          grep "CONFIG_OCP2131" $GITHUB_WORKSPACE/out/.config
+          grep "CONFIG_OCP2131" .config
 
       - name: Build Kernel
         run: |
