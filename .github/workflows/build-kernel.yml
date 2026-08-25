@@ -40,11 +40,12 @@ jobs:
           echo 'dtb-$(CONFIG_ARCH_QCOM) += 06_dtbdump_Qualcomm_Technologies,_Inc._Parrot_SoC.dtb' >> arch/arm64/boot/dts/vendor/Makefile
           echo 'dtb-$(CONFIG_ARCH_QCOM) += 07_dtbdump_Qualcomm_Technologies,_Inc._ParrotP_SoC.dtb' >> arch/arm64/boot/dts/vendor/Makefile
 
-      - name: Fix Driver Issues and Generate Defconfig
+      - name: Delete Problem Drivers and Generate Defconfig
         run: |
           cd kernel_source
-          # 修复背光驱动缺少 i2c 头文件的问题
-          sed -i '1i #include <linux/i2c.h>' drivers/misc/ocp2131_bias/ocp2131_bias.c
+          # 直接删掉报错的小米背光辅助驱动（不影响开机）
+          rm -rf drivers/misc/ocp2131_bias
+          sed -i '/ocp2131_bias/d' drivers/misc/Makefile
           make O=$GITHUB_WORKSPACE/out vendor/parrot_consolidate.config
 
       - name: Build Kernel
