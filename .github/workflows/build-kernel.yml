@@ -40,23 +40,27 @@ jobs:
           echo 'dtb-$(CONFIG_ARCH_QCOM) += 06_dtbdump_Qualcomm_Technologies,_Inc._Parrot_SoC.dtb' >> arch/arm64/boot/dts/vendor/Makefile
           echo 'dtb-$(CONFIG_ARCH_QCOM) += 07_dtbdump_Qualcomm_Technologies,_Inc._ParrotP_SoC.dtb' >> arch/arm64/boot/dts/vendor/Makefile
 
-      - name: Remove hqsysfs Driver and Kconfig Reference
+      - name: Remove hqsysfs Driver Completely
         run: |
           cd kernel_source
           # 删除 hqsysfs 目录
           rm -rf drivers/misc/hqsysfs
           echo "✅ hqsysfs directory removed"
           
-          # 从 Kconfig 中删除 hqsysfs 引用
+          # 从 Kconfig 中删除引用
           sed -i '/source "drivers\/misc\/hqsysfs\/Kconfig"/d' drivers/misc/Kconfig
-          echo "✅ hqsysfs reference removed from Kconfig"
+          echo "✅ hqsysfs removed from Kconfig"
+          
+          # 从 Makefile 中删除引用
+          sed -i '/obj-$(CONFIG_HQSYSFS)/d' drivers/misc/Makefile
+          sed -i '/hqsysfs/d' drivers/misc/Makefile
+          echo "✅ hqsysfs removed from Makefile"
           
           # 验证
-          if grep -q hqsys drivers/misc/Kconfig 2>/dev/null; then
-            echo "⚠️ hqsysfs still in Kconfig"
-          else
-            echo "✅ hqsysfs completely removed"
-          fi
+          echo "=== 验证删除 ==="
+          grep -i hqsys drivers/misc/Makefile 2>/dev/null || echo "✅ Makefile 干净"
+          grep -i hqsys drivers/misc/Kconfig 2>/dev/null || echo "✅ Kconfig 干净"
+          ls -la drivers/misc/ | grep hqsys || echo "✅ 目录已删除"
 
       - name: Generate Defconfig
         run: |
