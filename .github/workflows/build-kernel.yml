@@ -87,15 +87,76 @@ jobs:
           echo "=== 最终 .config 中的 I2C 配置 ==="
           grep "CONFIG_I2C" $GITHUB_WORKSPACE/out/.config | head -10
 
-      - name: Build Kernel
+      - name: Build Kernel and Modules
         run: |
           cd kernel_source
-          echo "=== 开始编译内核 ==="
+          echo "=== 1. 编译内核 (Image) ==="
           make O=$GITHUB_WORKSPACE/out -j$(nproc)
+          
+          echo ""
+          echo "=== 2. 编译设备树 (dtbs) ==="
+          make O=$GITHUB_WORKSPACE/out dtbs -j$(nproc)
+          
+          echo ""
+          echo "=== 3. 编译内核模块 (modules) ==="
+          make O=$GITHUB_WORKSPACE/out modules -j$(nproc)
+          
+          echo ""
+          echo "=== 4. 安装模块到输出目录 ==="
+          make O=$GITHUB_WORKSPACE/out modules_install INSTALL_MOD_PATH=$GITHUB_WORKSPACE/out/modules
+          
+          echo ""
+          echo "=== 5. 检查编译结果 ==="
+          echo "Image 大小："
+          ls -lh $GITHUB_WORKSPACE/out/arch/arm64/boot/Image
+          echo ""
+          echo "模块数量："
+          find $GITHUB_WORKSPACE/out/modules -name "*.ko" 2>/dev/null | wc -l
+          echo ""
+          echo "模块目录大小："
+          du -sh $GITHUB_WORKSPACE/out/modules/ 2>/dev/null || echo "没有模块目录"
+          echo ""
+          echo "设备树文件："
+          find $GITHUB_WORKSPACE/out/arch/arm64/boot/dts -name "*.dtb" 2>/dev/null | head -5
 
       - name: Upload Kernel Image
         uses: actions/upload-artifact@v4
         with:
-          name: Kernel-Sky-Image
+          name: Kernel-Image
           path: ${{ github.workspace }}/out/arch/arm64/boot/Image
           if-no-files-found: error
+
+      - name: Upload Kernel Modules
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kernel-Modules
+          path: ${{ github.workspace }}/out/modules/
+          if-no-files-found: warn
+
+      - name: Upload Device Tree Blobs
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kernel-DTBS
+          path: ${{ github.workspace }}/out/arch/arm64/boot/dts/
+          if-no-files-found: warn
+
+      - name: Upload Full Kernel Build (所有文件打包)
+        if: always()
+        run: |
+          cd $GITHUB_WORKSPACE/out
+          zip -r $GITHUB_WORKSPACE/full-kernel-build.zip \
+            arch/arm64/boot/Image \
+            arch/arm64/boot/dts/ \
+            modules/ \
+            .config \
+            2>/dev/null || echo "部分文件不存在"
+          echo "完整内核包大小："
+          ls -lh $GITHUB_WORKSPACE/full-kernel-build.zip 2>/dev/null || echo "打包失败"
+
+      - name: Upload Full Kernel Build
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Full-Kernel-Build
+          path: ${{ github.workspace }}/full-kernel-build.zip
+          if-no-files-found: warn
