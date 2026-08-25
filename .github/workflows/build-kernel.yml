@@ -40,9 +40,11 @@ jobs:
           echo 'dtb-$(CONFIG_ARCH_QCOM) += 06_dtbdump_Qualcomm_Technologies,_Inc._Parrot_SoC.dtb' >> arch/arm64/boot/dts/vendor/Makefile
           echo 'dtb-$(CONFIG_ARCH_QCOM) += 07_dtbdump_Qualcomm_Technologies,_Inc._ParrotP_SoC.dtb' >> arch/arm64/boot/dts/vendor/Makefile
 
-      - name: Generate Defconfig
+      - name: Fix Driver Issues and Generate Defconfig
         run: |
           cd kernel_source
+          # 修复背光驱动缺少 i2c 头文件的问题
+          sed -i '1i #include <linux/i2c.h>' drivers/misc/ocp2131_bias/ocp2131_bias.c
           make O=$GITHUB_WORKSPACE/out vendor/parrot_consolidate.config
 
       - name: Build Kernel
