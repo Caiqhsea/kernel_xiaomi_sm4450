@@ -137,18 +137,4 @@ jobs:
         with:
           name: build-log
           path: ${{ github.workspace }}/build.log
-          if-no-files-found: ignore          sed -i '/obj-$(CONFIG_HQSYSFS)/d' drivers/misc/Makefile
-          sed -i '/hqsysfs/d' drivers/misc/Makefile
-          echo "✅ hqsysfs removed"
-
-      - name: Generate Full Defconfig
-        run: |
-          cd kernel_source
-          
-          make mrproper
-          
-          echo "=== 生成完整配置 ==="
-          
-          make O=$GITHUB_WORKSPACE/out ARCH=arm64 gki_defconfig
-          make O=$GITHUB_WORKSPACE/out ARCH=arm64 vendor/parrot_GKI.config
-          make O=
+          if-no-files-found: ignore
