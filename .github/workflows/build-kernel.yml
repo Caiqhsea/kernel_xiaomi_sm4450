@@ -14,7 +14,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             bc bison build-essential ccache cpio curl device-tree-compiler flex \
             git libelf-dev libssl-dev lz4 make python3 rsync unzip zip zstd \
-            libncurses-dev gcc-aarch64-linux-gnu
+            libncurses-dev gcc-aarch64-linux-gnu lld
 
       - name: Checkout Kernel Source
         run: |
@@ -24,7 +24,7 @@ jobs:
         run: |
           echo "ARCH=arm64" >> $GITHUB_ENV
           echo "CC=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
-          echo "LD=aarch64-linux-gnu-ld" >> $GITHUB_ENV
+          echo "LD=ld.lld" >> $GITHUB_ENV
           echo "AR=aarch64-linux-gnu-ar" >> $GITHUB_ENV
           echo "LLVM=0" >> $GITHUB_ENV
           echo "CROSS_COMPILE=aarch64-linux-gnu-" >> $GITHUB_ENV
@@ -32,14 +32,10 @@ jobs:
       - name: Fix Device Tree Makefile
         run: |
           cd kernel_source
-          # 从你自己复刻的仓库里下载那11个原厂设备树
           git clone --depth=1 -b 16 https://github.com/Caiqhsea/device_xiaomi_sky-kernel.git /tmp/dtbs
-          # 因为源码里自带的vendor是假链接，必须先删掉，再建一个真的！
           rm -rf arch/arm64/boot/dts/vendor
           mkdir -p arch/arm64/boot/dts/vendor
-          # 把设备树复制进去
           cp /tmp/dtbs/dtbs/*.dtb arch/arm64/boot/dts/vendor/
-          # 加进编译列表
           echo 'dtb-$(CONFIG_ARCH_QCOM) += 05_dtbdump_Qualcomm_Technologies,_Inc._Parrot_4Gb_SoC.dtb' >> arch/arm64/boot/dts/vendor/Makefile
           echo 'dtb-$(CONFIG_ARCH_QCOM) += 06_dtbdump_Qualcomm_Technologies,_Inc._Parrot_SoC.dtb' >> arch/arm64/boot/dts/vendor/Makefile
           echo 'dtb-$(CONFIG_ARCH_QCOM) += 07_dtbdump_Qualcomm_Technologies,_Inc._ParrotP_SoC.dtb' >> arch/arm64/boot/dts/vendor/Makefile
