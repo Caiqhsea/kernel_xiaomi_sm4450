@@ -56,19 +56,22 @@ jobs:
           echo "KBUILD_BUILD_USER=github" >> $GITHUB_ENV
           echo "KBUILD_BUILD_HOST=actions" >> $GITHUB_ENV
 
-      - name: Generate Defconfig (with fix)
+      - name: Generate Defconfig (with necessary fixes)
         run: |
           cd kernel_source
           make mrproper
+          # ========== 关键修复：创建 FT8725 驱动所需的空固件文件 ==========
+          mkdir -p include/firmware
+          touch include/firmware/fw_sample.i
+          # =================================================================
           mkdir -p "$GITHUB_WORKSPACE/out"
-          # 优先使用自定义 config，若不存在则使用 defconfig
           if [ -f arch/arm64/configs/config ]; then
             cp arch/arm64/configs/config "$GITHUB_WORKSPACE/out/.config"
             make O="$GITHUB_WORKSPACE/out" ARCH=arm64 LLVM=1 LLVM_IAS=1 olddefconfig
           else
             make O="$GITHUB_WORKSPACE/out" ARCH=arm64 LLVM=1 LLVM_IAS=1 defconfig
           fi
-          # 必要修复：清除可能导致编译失败的白名单路径
+          # 清除可能导致编译失败的白名单路径
           sed -i '/CONFIG_UNUSED_KSYMS_WHITELIST/d' "$GITHUB_WORKSPACE/out/.config" 2>/dev/null || true
           make O="$GITHUB_WORKSPACE/out" ARCH=arm64 LLVM=1 LLVM_IAS=1 olddefconfig
 
