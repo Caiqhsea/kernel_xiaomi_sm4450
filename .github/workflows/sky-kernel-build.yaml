@@ -73,6 +73,15 @@ jobs:
           sed -i '/jtagv8/d' drivers/soc/qcom/Makefile
           echo "✅ jtagv8 已移除"
 
+      - name: Fix ufs-qcom.c
+        run: |
+          cd kernel_source
+          sed -i 's/dev_warn(dev,/dev_warn(\&hba->pdev->dev,/g' drivers/scsi/ufs/ufs-qcom.c
+          sed -i 's/dev_err(dev,/dev_err(\&hba->pdev->dev,/g' drivers/scsi/ufs/ufs-qcom.c
+          sed -i 's/dev_info(dev,/dev_info(\&hba->pdev->dev,/g' drivers/scsi/ufs/ufs-qcom.c
+          sed -i 's/dev_dbg(dev,/dev_dbg(\&hba->pdev->dev,/g' drivers/scsi/ufs/ufs-qcom.c
+          echo "✅ ufs-qcom.c 修复完成"
+
       - name: Generate Defconfig
         run: |
           cd kernel_source
