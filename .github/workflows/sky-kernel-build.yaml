@@ -55,80 +55,84 @@ jobs:
           rm -f scsi_full.tar.gz
 
       - name: Fix firmware include path
-        run: |
-          cd kernel_source
-          ln -sf drivers/input/touchscreen/FT8725/include/firmware include/firmware
+run: |
+cd kernel_source
+ln -sf drivers/input/touchscreen/FT8725/include/firmware include/firmware
 
       - name: Set Environment Variables
-        run: |
-          echo "ARCH=arm64" >> $GITHUB_ENV
-          echo "LLVM=1" >> $GITHUB_ENV
-          echo "LLVM_IAS=1" >> $GITHUB_ENV
-          echo "CROSS_COMPILE=aarch64-linux-gnu-" >> $GITHUB_ENV
-          echo "KBUILD_BUILD_USER=github" >> $GITHUB_ENV
-          echo "KBUILD_BUILD_HOST=actions" >> $GITHUB_ENV
+run: |
+echo "ARCH=arm64" >> $GITHUB_ENV
+echo "LLVM=1" >> $GITHUB_ENV
+echo "LLVM_IAS=1" >> $GITHUB_ENV
+echo "CROSS_COMPILE=aarch64-linux-gnu-" >> $GITHUB_ENV
+echo "KBUILD_BUILD_USER=github" >> $GITHUB_ENV
+echo "KBUILD_BUILD_HOST=actions" >> $GITHUB_ENV
 
       - name: Remove hqsysfs Driver
-        run: |
-          cd kernel_source
-          rm -rf drivers/misc/hqsysfs
-          sed -i '/source "drivers\/misc\/hqsysfs\/Kconfig"/d' drivers/misc/Kconfig
-          sed -i '/obj-$(CONFIG_HQSYSFS)/d' drivers/misc/Makefile
-          sed -i '/hqsysfs/d' drivers/misc/Makefile
+run: |
+cd kernel_source
+rm -rf drivers/misc/hqsysfs
+sed -i '/source "drivers\/misc\/hqsysfs\/Kconfig"/d' drivers/misc/Kconfig
+sed -i '/obj-$(CONFIG_HQSYSFS)/d' drivers/misc/Makefile
+sed -i '/hqsysfs/d' drivers/misc/Makefile
 
       - name: Disable minidump_log
-        run: |
-          cd kernel_source
-          rm -f drivers/soc/qcom/minidump_log.c
-          sed -i '/minidump_log/d' drivers/soc/qcom/Makefile
+run: |
+cd kernel_source
+rm -f drivers/soc/qcom/minidump_log.c
+sed -i'/minidump_log/d' drivers/soc/qcom/Makefile
 
       - name: Disable jtagv8
-        run: |
-          cd kernel_source
-          rm -f drivers/soc/qcom/jtagv8.c
-          sed -i '/jtagv8/d' drivers/soc/qcom/Makefile
+run: |
+cd kernel_source
+rm -f drivers/soc/qcom/jtagv8.c
+sed -i'/jtagv8/d' drivers/soc/qcom/Makefile
 
       - name: Fix ufs-qcom.c
-        run: |
-          cd kernel_source
-          sed -i 's/dev_warn(dev,/dev_warn(\&hba->pdev->dev,/g' drivers/scsi/ufs/ufs-qcom.c 2>/dev/null || true
-          sed -i 's/dev_err(dev,/dev_err(\&hba->pdev->dev,/g' drivers/scsi/ufs/ufs-qcom.c 2>/dev/null || true
-          sed -i 's/dev_info(dev,/dev_info(\&hba->pdev->dev,/g' drivers/scsi/ufs/ufs-qcom.c 2>/dev/null || true
-          sed -i 's/dev_dbg(dev,/dev_dbg(\&hba->pdev->dev,/g' drivers/scsi/ufs/ufs-qcom.c 2>/dev/null || true
+run: |
+cd kernel_source
+sed -i's/dev_warn(dev,/dev_warn(\&hba->pdev->dev,/g'drivers/scsi/ufs/ufs-qcom.c 2>/dev/null || true
+sed -i's/dev_err(dev,/dev_err(\&hba->pdev->dev,/g'drivers/scsi/ufs/ufs-qcom.c 2>/dev/null || true
+sed -i's/dev_info(dev,/dev_info(\&hba->pdev->dev,/g'drivers/scsi/ufs/ufs-qcom.c 2>/dev/null || true
+sed -i's/dev_dbg(dev,/dev_dbg(\&hba->pdev->dev,/g'drivers/scsi/ufs/ufs-qcom.c 2>/dev/null || true
 
-      # ========== 配置生成：先 olddefconfig，再清除无用的白名单路径 ==========
+      # ========== 生成配置并清除无用的白名单路径 ==========
       - name: Generate Defconfig
-        run: |
-          cd kernel_source
-          make mrproper
-          mkdir -p "$GITHUB_WORKSPACE/out"
-          cp arch/arm64/configs/config "$GITHUB_WORKSPACE/out/.config"
-          make O="$GITHUB_WORKSPACE/out" ARCH=arm64 LLVM=1 LLVM_IAS=1 olddefconfig
-          # 关键修复：移除 CONFIG_UNUSED_KSYMS_WHITELIST 以免构建时查找不存在的文件
-          sed -i 's/^CONFIG_UNUSED_KSYMS_WHITELIST=.*/# CONFIG_UNUSED_KSYMS_WHITELIST is not set/' "$GITHUB_WORKSPACE/out/.config"
-      # ================================================================
+run: |
+cd kernel_source
+make mrproper
+namePackage Kernel
+runname
+# 第一次 olddefconfig 生成完整配置
+make O="$GITHUB_WORKSPACE/out"ARCH=arm64 LLVM=1 LLVM_IAS=1 olddefconfig
+# 使用 scripts/config 工具禁用 UNUSED_KSYMS_WHITELIST（将其设为空）
+./scripts/config --file"$GITHUB_WORKSPACE/out/.config"--set-str CONFIG_UNUSED_KSYMS_WHITELIST""
+# 也可以直接删除该行：sed -i '/CONFIG_UNUSED_KSYMS_WHITELIST/d' "$GITHUB_WORKSPACE/out/.config"
+# 再次运行 olddefconfig 使配置稳定
+make O="$GITHUB_WORKSPACE/out"ARCH=arm64 LLVM=1 LLVM_IAS=1 olddefconfig
+      # ===================================================
 
-      # ========== 构建内核（不再需要 ABI_SYMBOL_LIST 变量） ==========
+      # ========== 构建内核 ==========
       - name: Build Kernel
 run: |
 cd kernel_source
 make O="$GITHUB_WORKSPACE/out"-j$(nproc) LLVM=1 LLVM_IAS=1 \
-V=1 2>&1 | tee"$GITHUB_WORKSPACE/build.log"
-if[${PIPESTATUS[0]}-ne 0]; then
-echo"❌ 编译失败，以下为错误摘要："
-grep -i"error:" "$GITHUB_WORKSPACE/build.log"| head -20
-exit 1
-fi
-      # ================================================================
+$
+echo[Fix ufs-qcom.crun{runcd kernel_source[0]}cd kernel_sourcerm -f drivers/soc/qcom/jtagv8.c]sed -i
+"❌ 编译失败，以下为错误摘要："
+grep -i"error:"run# ========== 生成配置并清除无用的白名单路径 ==========sed -icd kernel_sourcename
+head -20
+grep -i
+# =============================
 
-      - name: Upload build log (if failed)
+- |name: Upload build log (if failed)
 if: failure()
-uses: actions/upload-artifact@v4
+|uses: actions/upload-artifact@v4
 with:
 name: build-log
 path: build.log
 
-      - name: Package Kernel
+- cp arch/arm64/configs/config"$GITHUB_WORKSPACE/out": "$GITHUB_WORKSPACE/out/.config"
 run: |
 cd"$GITHUB_WORKSPACE/out"
 mkdir -p kernel_package
@@ -136,7 +140,7 @@ find . -name"Image*"-exec cp{}kernel_package/ \;
 cd kernel_package
 zip -r"$GITHUB_WORKSPACE/kernel-full.zip" .
 
-      - name: Upload Artifact
+- name: Upload Artifact
 uses: actions/upload-artifact@v4
 with:
 name: kernel-full
