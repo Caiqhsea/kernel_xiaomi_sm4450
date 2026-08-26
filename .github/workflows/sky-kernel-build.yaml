@@ -45,7 +45,9 @@ jobs:
       - name: Extract scsi drivers
         run: |
           cd kernel_source
-          tar -xzf ../scsi_full.tar.gz
+          wget https://raw.githubusercontent.com/Caiqhsea/kernel_xiaomi_sm4450/lineage-20/scsi_full.tar.gz
+          tar -xzf scsi_full.tar.gz
+          rm -f scsi_full.tar.gz
 
       - name: Set Environment Variables
         run: |
@@ -97,7 +99,6 @@ jobs:
             make O=$GITHUB_WORKSPACE/out ARCH=arm64 LLVM=1 LLVM_IAS=1 vendor/parrot_GKI.config || true
           fi
           cd $GITHUB_WORKSPACE/out
-          # 禁用 UFS_QCOM
           sed -i 's/CONFIG_SCSI_UFS_QCOM=m/# CONFIG_SCSI_UFS_QCOM is not set/g' .config
           echo "CONFIG_SCSI_UFS_HPB=y" >> .config
           echo "CONFIG_SCSI_UFS_BSG=y" >> .config
