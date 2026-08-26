@@ -59,36 +59,12 @@ jobs:
           sed -i '/hqsysfs/d' drivers/misc/Makefile
           echo "✅ hqsysfs removed"
 
-      - name: Fix minidump_log.c
+      - name: Disable minidump_log
         run: |
           cd kernel_source
-          
-          cat > /tmp/minidump_fix.h << 'EOF'
-          #ifdef CONFIG_MODULES
-          #include <linux/module.h>
-          #else
-          #include <linux/spinlock.h>
-          #include <linux/seq_buf.h>
-          #define MODULE_STATE_LIVE 0
-          #define MODULE_STATE_GOING 1
-          #define MD_MODULE_PAGES 1
-          struct module {
-              char name[64];
-              struct {
-                  unsigned long base;
-              } core_layout;
-              int state;
-          };
-          static spinlock_t md_modules_lock;
-          static struct seq_buf *md_mod_info_seq_buf;
-          #endif
-          EOF
-          
-          sed -i '1r /tmp/minidump_fix.h' drivers/soc/qcom/minidump_log.c
-          sed -i 's/->wts\./->se.sum_exec_runtime./g' drivers/soc/qcom/minidump_log.c
-          sed -i 's/tsk->wts/tsk->se.sum_exec_runtime/g' drivers/soc/qcom/minidump_log.c
-          
-          echo "✅ minidump_log.c 修复完成"
+          rm -f drivers/soc/qcom/minidump_log.c
+          sed -i '/minidump_log/d' drivers/soc/qcom/Makefile
+          echo "✅ minidump_log 已移除"
 
       - name: Generate Defconfig
         run: |
