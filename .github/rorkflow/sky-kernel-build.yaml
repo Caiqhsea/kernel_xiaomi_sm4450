@@ -32,6 +32,8 @@ jobs:
 
       - name: Install Dependencies
         run: |
+          # 启用阿里云镜像源（加速下载，可选）
+          sudo sed -i 's/archive.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
             bc bison build-essential ccache cpio curl device-tree-compiler flex \
@@ -41,18 +43,12 @@ jobs:
           clang --version
           llvm-ar --version
 
+      # ========== 使用 actions/checkout 拉取本地仓库 ==========
       - name: Checkout Kernel Source
         uses: actions/checkout@v4
         with:
           path: kernel_source
           ref: temp
-
-      - name: Extract scsi drivers
-        run: |
-          cd kernel_source
-          wget https://raw.githubusercontent.com/Caiqhsea/kernel_xiaomi_sm4450/lineage-20/scsi_full.tar.gz
-          tar -xzf scsi_full.tar.gz
-          rm -f scsi_full.tar.gz
 
       - name: Set Environment Variables
         run: |
@@ -63,21 +59,18 @@ jobs:
           echo "KBUILD_BUILD_USER=github" >> $GITHUB_ENV
           echo "KBUILD_BUILD_HOST=actions" >> $GITHUB_ENV
 
-      - name: Configure Kernel
+      - name: Generate Defconfig
         run: |
           cd kernel_source
           make mrproper
           mkdir -p "$GITHUB_WORKSPACE/out"
-          # 尝试使用 defconfig（如果没有 config 文件）
+          # 优先使用自定义 config，若不存在则使用 defconfig
           if [ -f arch/arm64/configs/config ]; then
             cp arch/arm64/configs/config "$GITHUB_WORKSPACE/out/.config"
+            make O="$GITHUB_WORKSPACE/out" ARCH=arm64 LLVM=1 LLVM_IAS=1 olddefconfig
           else
             make O="$GITHUB_WORKSPACE/out" ARCH=arm64 LLVM=1 LLVM_IAS=1 defconfig
           fi
-          make O="$GITHUB_WORKSPACE/out" ARCH=arm64 LLVM=1 LLVM_IAS=1 olddefconfig
-          # 清除可能导致错误的白名单配置
-          sed -i '/CONFIG_UNUSED_KSYMS_WHITELIST/d' "$GITHUB_WORKSPACE/out/.config" 2>/dev/null || true
-          make O="$GITHUB_WORKSPACE/out" ARCH=arm64 LLVM=1 LLVM_IAS=1 olddefconfig
 
       - name: Build Kernel
         run: |
