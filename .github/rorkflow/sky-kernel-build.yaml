@@ -45,7 +45,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: kernel_source
-          ref: temp               # <--- 改为 temp
+          ref: temp
 
       - name: Extract scsi drivers
         run: |
@@ -63,51 +63,26 @@ jobs:
           echo "KBUILD_BUILD_USER=github" >> $GITHUB_ENV
           echo "KBUILD_BUILD_HOST=actions" >> $GITHUB_ENV
 
-      - name: Remove hqsysfs Driver
-        run: |
-          cd kernel_source
-          rm -rf drivers/misc/hqsysfs
-          sed -i '/source "drivers\/misc\/hqsysfs\/Kconfig"/d' drivers/misc/Kconfig
-          sed -i '/obj-$(CONFIG_HQSYSFS)/d' drivers/misc/Makefile
-          sed -i '/hqsysfs/d' drivers/misc/Makefile
-
-      - name: Disable minidump_log
-        run: |
-          cd kernel_source
-          rm -f drivers/soc/qcom/minidump_log.c
-          sed -i '/minidump_log/d' drivers/soc/qcom/Makefile
-
-      - name: Disable jtagv8
-        run: |
-          cd kernel_source
-          rm -f drivers/soc/qcom/jtagv8.c
-          sed -i '/jtagv8/d' drivers/soc/qcom/Makefile
-
-      - name: Fix ufs-qcom.c
-        run: |
-          cd kernel_source
-          sed -i 's/dev_warn(dev,/dev_warn(&hba->pdev->dev,/g' drivers/scsi/ufs/ufs-qcom.c || true
-          sed -i 's/dev_err(dev,/dev_err(&hba->pdev->dev,/g' drivers/scsi/ufs/ufs-qcom.c || true
-          sed -i 's/dev_info(dev,/dev_info(&hba->pdev->dev,/g' drivers/scsi/ufs/ufs-qcom.c || true
-          sed -i 's/dev_dbg(dev,/dev_dbg(&hba->pdev->dev,/g' drivers/scsi/ufs/ufs-qcom.c || true
-
-      - name: Generate Defconfig
+      - name: Configure Kernel
         run: |
           cd kernel_source
           make mrproper
-          mkdir -p include/firmware
-          touch include/firmware/fw_sample.i
           mkdir -p "$GITHUB_WORKSPACE/out"
-          cp arch/arm64/configs/config "$GITHUB_WORKSPACE/out/.config"
+          # 尝试使用 defconfig（如果没有 config 文件）
+          if [ -f arch/arm64/configs/config ]; then
+            cp arch/arm64/configs/config "$GITHUB_WORKSPACE/out/.config"
+          else
+            make O="$GITHUB_WORKSPACE/out" ARCH=arm64 LLVM=1 LLVM_IAS=1 defconfig
+          fi
           make O="$GITHUB_WORKSPACE/out" ARCH=arm64 LLVM=1 LLVM_IAS=1 olddefconfig
-          sed -i '/CONFIG_UNUSED_KSYMS_WHITELIST/d' "$GITHUB_WORKSPACE/out/.config"
+          # 清除可能导致错误的白名单配置
+          sed -i '/CONFIG_UNUSED_KSYMS_WHITELIST/d' "$GITHUB_WORKSPACE/out/.config" 2>/dev/null || true
           make O="$GITHUB_WORKSPACE/out" ARCH=arm64 LLVM=1 LLVM_IAS=1 olddefconfig
 
       - name: Build Kernel
         run: |
           cd kernel_source
-          make O="$GITHUB_WORKSPACE/out" -j$(nproc) LLVM=1 LLVM_IAS=1 \
-            2>&1 | tee "$GITHUB_WORKSPACE/build.log"
+          make O="$GITHUB_WORKSPACE/out" -j$(nproc) LLVM=1 LLVM_IAS=1 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
           if [ ${PIPESTATUS[0]} -ne 0 ]; then
             echo "❌ 编译失败"
             tail -100 "$GITHUB_WORKSPACE/build.log"
