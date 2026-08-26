@@ -41,9 +41,13 @@ jobs:
           clang --version
           llvm-ar --version
 
+      # ========== 关键改动：使用当前仓库源码，不再 git clone ==========
       - name: Checkout Kernel Source
-        run: |
-          git clone -b lineage-20 https://github.com/Caiqhsea/kernel_xiaomi_sm4450.git kernel_source
+        uses: actions/checkout@v4
+        with:
+          path: kernel_source
+          ref: lineage-20   # 如果当前仓库默认分支就是 lineage-20，可删除这一行
+      # ================================================================
 
       - name: Extract scsi drivers
         run: |
@@ -94,7 +98,6 @@ jobs:
           sed -i 's/dev_info(dev,/dev_info(\&hba->pdev->dev,/g' drivers/scsi/ufs/ufs-qcom.c 2>/dev/null || true
           sed -i 's/dev_dbg(dev,/dev_dbg(\&hba->pdev->dev,/g' drivers/scsi/ufs/ufs-qcom.c 2>/dev/null || true
 
-      # ========== 修复点：使用 O= 指定输出目录，不再手动 cd ==========
       - name: Generate Defconfig
         run: |
           cd kernel_source
@@ -102,7 +105,6 @@ jobs:
           mkdir -p "$GITHUB_WORKSPACE/out"
           cp arch/arm64/configs/config "$GITHUB_WORKSPACE/out/.config"
           make O="$GITHUB_WORKSPACE/out" ARCH=arm64 LLVM=1 LLVM_IAS=1 olddefconfig
-      # ==============================================================
 
       - name: Build Kernel
         run: |
