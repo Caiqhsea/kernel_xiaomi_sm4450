@@ -59,7 +59,6 @@ jobs:
           cd kernel_source
           ln -sf drivers/input/touchscreen/FT8725/include/firmware include/firmware
 
-      # 新增：创建空的固件文件，避免编译错误
       - name: Create dummy firmware file
         run: |
           cd kernel_source
@@ -103,13 +102,12 @@ jobs:
           sed -i 's/dev_dbg(dev,/dev_dbg(\&hba->pdev->dev,/g' drivers/scsi/ufs/ufs-qcom.c 2>/dev/null || true
 
       - name: Generate Defconfig
-        run: |
-          cd kernel_source
-          make mrproper
-          mkdir -p "$GITHUB_WORKSPACE/out"
-          cp arch/arm64/configs/config "$GITHUB_WORKSPACE/out/.config"
-          make O="$GITHUB_WORKSPACE/out" ARCH=arm64 LLVM=1 LLVM_IAS=1 olddefconfig
-          # 清除无用的白名单路径
+run: |
+cd kernel_source
+make mrproper
+mkdir -p"$GITHUB_WORKSPACE/out"
+cp arch/arm64/configs/config"$GITHUB_WORKSPACE/out/.config"
+make O="$GITHUB_WORKSPACE/out"ARCH=arm64 LLVM=1 LLVM_IAS=1 olddefconfig
 sed -i'/CONFIG_UNUSED_KSYMS_WHITELIST/d' "$GITHUB_WORKSPACE/out/.config"
 make O="$GITHUB_WORKSPACE/out"ARCH=arm64 LLVM=1 LLVM_IAS=1 olddefconfig
 
