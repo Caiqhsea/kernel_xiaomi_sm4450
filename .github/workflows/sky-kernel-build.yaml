@@ -96,6 +96,7 @@ jobs:
           sed -i 's/dev_info(dev,/dev_info(\&hba->pdev->dev,/g' drivers/scsi/ufs/ufs-qcom.c 2>/dev/null || true
           sed -i 's/dev_dbg(dev,/dev_dbg(\&hba->pdev->dev,/g' drivers/scsi/ufs/ufs-qcom.c 2>/dev/null || true
 
+      # ========== 配置生成：先 olddefconfig，再清除无用的白名单路径 ==========
       - name: Generate Defconfig
         run: |
           cd kernel_source
@@ -103,42 +104,41 @@ jobs:
           mkdir -p "$GITHUB_WORKSPACE/out"
           cp arch/arm64/configs/config "$GITHUB_WORKSPACE/out/.config"
           make O="$GITHUB_WORKSPACE/out" ARCH=arm64 LLVM=1 LLVM_IAS=1 olddefconfig
+          # 关键修复：移除 CONFIG_UNUSED_KSYMS_WHITELIST 以免构建时查找不存在的文件
+          sed -i 's/^CONFIG_UNUSED_KSYMS_WHITELIST=.*/# CONFIG_UNUSED_KSYMS_WHITELIST is not set/' "$GITHUB_WORKSPACE/out/.config"
+      # ================================================================
 
-      # ========== 构建内核（带详细输出和日志上传） ==========
+      # ========== 构建内核（不再需要 ABI_SYMBOL_LIST 变量） ==========
       - name: Build Kernel
-        run: |
-          cd kernel_source
-          touch "$GITHUB_WORKSPACE/empty_abi_list"
-          # 使用 V=1 输出详细编译命令，方便调试
-          make O="$GITHUB_WORKSPACE/out" -j$(nproc) LLVM=1 LLVM_IAS=1 \
-            V=1 \
-            ABI_SYMBOL_LIST="$GITHUB_WORKSPACE/empty_abi_list" \
-            ABI_SYMBOL_LIST_WHITELIST="$GITHUB_WORKSPACE/empty_abi_list" \
-            2>&1 | tee "$GITHUB_WORKSPACE/build.log"
-          if [ ${PIPESTATUS[0]} -ne 0 ]; then
-            echo "❌ 编译失败，以下为错误摘要："
-            grep -i "error:" "$GITHUB_WORKSPACE/build.log" | head -20
-            exit 1
-          fi
+run: |
+cd kernel_source
+make O="$GITHUB_WORKSPACE/out"-j$(nproc) LLVM=1 LLVM_IAS=1 \
+V=1 2>&1 | tee"$GITHUB_WORKSPACE/build.log"
+if[${PIPESTATUS[0]}-ne 0]; then
+echo"❌ 编译失败，以下为错误摘要："
+grep -i"error:" "$GITHUB_WORKSPACE/build.log"| head -20
+exit 1
+fi
+      # ================================================================
 
       - name: Upload build log (if failed)
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-log
-          path: build.log
+if: failure()
+uses: actions/upload-artifact@v4
+with:
+name: build-log
+path: build.log
 
       - name: Package Kernel
-        run: |
-          cd "$GITHUB_WORKSPACE/out"
-          mkdir -p kernel_package
-          find . -name "Image*" -exec cp {} kernel_package/ \;
-          cd kernel_package
-          zip -r "$GITHUB_WORKSPACE/kernel-full.zip" .
+run: |
+cd"$GITHUB_WORKSPACE/out"
+mkdir -p kernel_package
+find . -name"Image*"-exec cp{}kernel_package/ \;
+cd kernel_package
+zip -r"$GITHUB_WORKSPACE/kernel-full.zip" .
 
       - name: Upload Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: kernel-full
-          path: kernel-full.zip
+uses: actions/upload-artifact@v4
+with:
+name: kernel-full
+path: kernel-full.zip
           retention-days: 7
