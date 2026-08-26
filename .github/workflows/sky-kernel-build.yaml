@@ -40,14 +40,12 @@ jobs:
 
       - name: Checkout Kernel Source
         run: |
-          git clone --depth=1 https://github.com/Caiqhsea/kernel_xiaomi_sm4450.git kernel_source
+          git clone --depth=1 -b lineage-20 https://github.com/Caiqhsea/kernel_xiaomi_sm4450.git kernel_source
 
       - name: Extract scsi drivers
         run: |
           cd kernel_source
-          wget https://raw.githubusercontent.com/Caiqhsea/kernel_xiaomi_sm4450/sky-t-oss/scsi_full.tar.gz
-          tar -xzf scsi_full.tar.gz
-          rm -f scsi_full.tar.gz
+          tar -xzf ../scsi_full.tar.gz
 
       - name: Set Environment Variables
         run: |
