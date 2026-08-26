@@ -54,14 +54,12 @@ jobs:
           tar -xzf scsi_full.tar.gz
           rm -f scsi_full.tar.gz
 
-      - name: Fix firmware include path
+      # 注意：不再使用符号链接，直接创建目录和空固件文件
+      - name: Create firmware directory and dummy file
         run: |
           cd kernel_source
-          ln -sf drivers/input/touchscreen/FT8725/include/firmware include/firmware
-
-      - name: Create dummy firmware file
-        run: |
-          cd kernel_source
+          rm -f include/firmware          # 移除可能存在的旧符号链接
+          mkdir -p include/firmware
           touch include/firmware/fw_sample.i
 
       - name: Set Environment Variables
@@ -93,6 +91,7 @@ jobs:
           rm -f drivers/soc/qcom/jtagv8.c
           sed -i '/jtagv8/d' drivers/soc/qcom/Makefile
 
+      # 修复 ufs-qcom.c：拆分每条 sed 命令，避免 YAML 解析问题
       - name: Fix ufs-qcom.c
         run: |
           cd kernel_source
