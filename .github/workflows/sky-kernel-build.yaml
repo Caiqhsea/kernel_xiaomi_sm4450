@@ -45,7 +45,9 @@ jobs:
       - name: Extract scsi drivers
         run: |
           cd kernel_source
-          tar -xzf ../scsi_full.tar.gz
+          wget https://raw.githubusercontent.com/Caiqhsea/kernel_xiaomi_sm4450/lineage-20/scsi_full.tar.gz
+          tar -xzf scsi_full.tar.gz
+          rm -f scsi_full.tar.gz
 
       - name: Set Environment Variables
         run: |
