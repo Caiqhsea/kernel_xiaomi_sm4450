@@ -1,4 +1,4 @@
-- name: Build Kernel
+  name: Build Kernel
   run: |
     cd kernel_source
     echo "=== 编译完整内核 ==="
