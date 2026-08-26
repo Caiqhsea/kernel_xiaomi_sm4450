@@ -49,6 +49,11 @@ jobs:
           tar -xzf scsi_full.tar.gz
           rm -f scsi_full.tar.gz
 
+      - name: Fix firmware include path
+        run: |
+          cd kernel_source
+          ln -sf drivers/input/touchscreen/FT8725/include/firmware include/firmware
+
       - name: Set Environment Variables
         run: |
           echo "ARCH=arm64" >> $GITHUB_ENV
