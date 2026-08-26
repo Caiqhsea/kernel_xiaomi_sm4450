@@ -41,13 +41,13 @@ jobs:
           clang --version
           llvm-ar --version
 
-      # ========== 关键改动：使用当前仓库源码，不再 git clone ==========
+      # ==================== 使用当前仓库源码 ====================
       - name: Checkout Kernel Source
         uses: actions/checkout@v4
         with:
           path: kernel_source
-          ref: lineage-20   # 如果当前仓库默认分支就是 lineage-20，可删除这一行
-      # ================================================================
+          ref: lineage-20          # 如果默认分支就是 lineage-20，可删除此行
+      # ========================================================
 
       - name: Extract scsi drivers
         run: |
@@ -87,46 +87,55 @@ jobs:
       - name: Disable jtagv8
         run: |
           cd kernel_source
-          rm -f drivers/soc/qcom/jtagv8.c
-          sed -i '/jtagv8/d' drivers/soc/qcom/Makefile
+rm -f drivers/soc/qcom/jtagv8.c
+sed -i'/jtagv8/d' drivers/soc/qcom/Makefile
 
       - name: Fix ufs-qcom.c
-        run: |
-          cd kernel_source
-          sed -i 's/dev_warn(dev,/dev_warn(\&hba->pdev->dev,/g' drivers/scsi/ufs/ufs-qcom.c 2>/dev/null || true
-          sed -i 's/dev_err(dev,/dev_err(\&hba->pdev->dev,/g' drivers/scsi/ufs/ufs-qcom.c 2>/dev/null || true
-          sed -i 's/dev_info(dev,/dev_info(\&hba->pdev->dev,/g' drivers/scsi/ufs/ufs-qcom.c 2>/dev/null || true
-          sed -i 's/dev_dbg(dev,/dev_dbg(\&hba->pdev->dev,/g' drivers/scsi/ufs/ufs-qcom.c 2>/dev/null || true
+run: |
+cd kernel_source
+sed -i's/dev_warn(dev,/dev_warn(\&hba->pdev->dev,/g'drivers/scsi/ufs/ufs-qcom.c 2>/dev/null || true
+sed -i's/dev_err(dev,/dev_err(\&hba->pdev->dev,/g'drivers/scsi/ufs/ufs-qcom.c 2>/dev/null || true
+sed -i's/dev_info(dev,/dev_info(\&hba->pdev->dev,/g'drivers/scsi/ufs/ufs-qcom.c 2>/dev/null || true
+sed -i's/dev_dbg(dev,/dev_dbg(\&hba->pdev->dev,/g'drivers/scsi/ufs/ufs-qcom.c 2>/dev/null || true
 
+      # ========== 配置生成：使用 O=out，避免 cd 失败 ==========
       - name: Generate Defconfig
-        run: |
-          cd kernel_source
-          make mrproper
-          mkdir -p "$GITHUB_WORKSPACE/out"
-          cp arch/arm64/configs/config "$GITHUB_WORKSPACE/out/.config"
-          make O="$GITHUB_WORKSPACE/out" ARCH=arm64 LLVM=1 LLVM_IAS=1 olddefconfig
+run: |
+cd kernel_source
+make mrproper
+mkdir -p"$GITHUB_WORKSPACE/out"
+cp arch/arm64/configs/config"$GITHUB_WORKSPACE/out/.config"
+make O="$GITHUB_WORKSPACE/out"ARCH=arm64 LLVM=1 LLVM_IAS=1 olddefconfig
+      # ========================================================
 
+      # ========== 构建内核：覆盖 ABI 符号列表变量 ==========
       - name: Build Kernel
-        run: |
-          cd kernel_source
-          make O="$GITHUB_WORKSPACE/out" -j$(nproc) LLVM=1 LLVM_IAS=1 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
-          if [ ${PIPESTATUS[0]} -ne 0 ]; then
-            echo "❌ 编译失败"
-            tail -100 "$GITHUB_WORKSPACE/build.log"
-            exit 1
-          fi
+run: |
+cd kernel_source
+# 创建空文件，用于替代缺失的 abi_symbollist.raw
+touch"$GITHUB_WORKSPACE/empty_abi_list"
+make O="$GITHUB_WORKSPACE/out"-j$(nproc) LLVM=1 LLVM_IAS=1 \
+ABI_SYMBOL_LIST="$GITHUB_WORKSPACE/empty_abi_list" \
+ABI_SYMBOL_LIST_WHITELIST="$GITHUB_WORKSPACE/empty_abi_list" \
+2>&1 | tee"$GITHUB_WORKSPACE/build.log"
+if[${PIPESTATUS[0]}-ne 0]; then
+echo"❌ 编译失败"
+tail -100"$GITHUB_WORKSPACE/build.log"
+exit 1
+fi
+      # ========================================================
 
       - name: Package Kernel
-        run: |
-          cd "$GITHUB_WORKSPACE/out"
-          mkdir -p kernel_package
-          find . -name "Image*" -exec cp {} kernel_package/ \;
-          cd kernel_package
-          zip -r "$GITHUB_WORKSPACE/kernel-full.zip" .
+run: |
+cd"$GITHUB_WORKSPACE/out"
+mkdir -p kernel_package
+find . -name"Image*"-exec cp{}kernel_package/ \;
+cd kernel_package
+zip -r"$GITHUB_WORKSPACE/kernel-full.zip" .
 
       - name: Upload Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: kernel-full
-          path: kernel-full.zip
+uses: actions/upload-artifact@v4
+with:
+name: kernel-full
+path: kernel-full.zip
           retention-days: 7
