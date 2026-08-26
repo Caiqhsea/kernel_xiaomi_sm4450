@@ -1,42 +1,142 @@
-  name: Build Kernel
-  run: |
-    cd kernel_source
-    echo "=== 编译完整内核 ==="
-    echo "当前内存状态："
-    free -h
+name: Build Sky Kernel
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
     
-    make O=$GITHUB_WORKSPACE/out -j4 2>&1 | tee $GITHUB_WORKSPACE/build.log
-    
-    BUILD_STATUS=${PIPESTATUS[0]}
-    
-    if [ $BUILD_STATUS -ne 0 ]; then
-      echo "❌ 编译失败"
-      tail -100 $GITHUB_WORKSPACE/build.log
-      exit 1
-    fi
-    
-    echo "✅ 编译成功"
-    
-- name: Package Kernel
-  run: |
-    cd $GITHUB_WORKSPACE/out
-    echo "=== 打包内核 ==="
-    
-    # 查找生成的 Image 文件
-    find . -name "Image" -o -name "Image.gz" -o -name "Image.lz4" | head -5
-    
-    # 打包所有内核镜像
-    mkdir -p kernel_package
-    find . -name "Image*" -exec cp {} kernel_package/ \;
-    
-    cd kernel_package
-    zip -r $GITHUB_WORKSPACE/kernel-full.zip .
-    
-    echo "✅ 打包完成"
-    
-- name: Upload Artifact
-  uses: actions/upload-artifact@v4
-  with:
-    name: kernel-full
-    path: kernel-full.zip
-    retention-days: 7
+    steps:
+      - name: Cleanup Disk Space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf "/usr/local/share/boost"
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/hostedtoolcache
+          df -h
+
+      - name: Setup Swap
+        run: |
+          sudo swapoff -a
+          sudo fallocate -l 8G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          echo "=== Swap 信息 ==="
+          free -h
+          swapon --show
+
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            bc bison build-essential ccache cpio curl device-tree-compiler flex \
+            git libelf-dev libssl-dev lz4 make python3 rsync unzip zip zstd \
+            libncurses-dev gcc-aarch64-linux-gnu lld llvm
+
+      - name: Checkout Kernel Source
+        run: |
+          git clone --depth=1 https://github.com/Caiqhsea/kernel_xiaomi_sm4450.git kernel_source
+
+      - name: Set Environment Variables
+        run: |
+          echo "ARCH=arm64" >> $GITHUB_ENV
+          echo "CC=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+          echo "LD=ld.lld" >> $GITHUB_ENV
+          echo "AR=aarch64-linux-gnu-ar" >> $GITHUB_ENV
+          echo "LLVM=0" >> $GITHUB_ENV
+          echo "CROSS_COMPILE=aarch64-linux-gnu-" >> $GITHUB_ENV
+          echo "KBUILD_BUILD_USER=github" >> $GITHUB_ENV
+          echo "KBUILD_BUILD_HOST=actions" >> $GITHUB_ENV
+
+      - name: Remove hqsysfs Driver
+        run: |
+          cd kernel_source
+          rm -rf drivers/misc/hqsysfs
+          sed -i '/source "drivers\/misc\/hqsysfs\/Kconfig"/d' drivers/misc/Kconfig
+          sed -i '/obj-$(CONFIG_HQSYSFS)/d' drivers/misc/Makefile
+          sed -i '/hqsysfs/d' drivers/misc/Makefile
+          echo "✅ hqsysfs removed"
+
+      - name: Fix minidump_log.c
+        run: |
+          cd kernel_source
+          
+          cat > /tmp/minidump_fix.h << 'EOF'
+          #ifdef CONFIG_MODULES
+          #include <linux/module.h>
+          #else
+          #include <linux/spinlock.h>
+          #include <linux/seq_buf.h>
+          #define MODULE_STATE_LIVE 0
+          #define MODULE_STATE_GOING 1
+          #define MD_MODULE_PAGES 1
+          struct module {
+              char name[64];
+              struct {
+                  unsigned long base;
+              } core_layout;
+              int state;
+          };
+          static spinlock_t md_modules_lock;
+          static struct seq_buf *md_mod_info_seq_buf;
+          #endif
+          EOF
+          
+          sed -i '1r /tmp/minidump_fix.h' drivers/soc/qcom/minidump_log.c
+          sed -i 's/->wts\./->se.sum_exec_runtime./g' drivers/soc/qcom/minidump_log.c
+          sed -i 's/tsk->wts/tsk->se.sum_exec_runtime/g' drivers/soc/qcom/minidump_log.c
+          
+          echo "✅ minidump_log.c 修复完成"
+
+      - name: Generate Defconfig
+        run: |
+          cd kernel_source
+          make mrproper
+          make O=$GITHUB_WORKSPACE/out ARCH=arm64 gki_defconfig
+          make O=$GITHUB_WORKSPACE/out ARCH=arm64 vendor/parrot_GKI.config
+          make O=$GITHUB_WORKSPACE/out ARCH=arm64 vendor/parrot_consolidate.config
+          
+          cd $GITHUB_WORKSPACE/out
+          sed -i '/CONFIG_MODULES/d' .config
+          echo "# CONFIG_MODULES is not set" >> .config
+          echo "CONFIG_OCP2131_BIAS=y" >> .config
+          echo "CONFIG_I2C_SMBUS=y" >> .config
+          echo "CONFIG_I2C_CHARDEV=y" >> .config
+          make ARCH=arm64 olddefconfig
+
+      - name: Build Kernel
+        run: |
+          cd kernel_source
+          echo "=== 编译完整内核 ==="
+          free -h
+          
+          make O=$GITHUB_WORKSPACE/out -j4 2>&1 | tee $GITHUB_WORKSPACE/build.log
+          
+          if [ ${PIPESTATUS[0]} -ne 0 ]; then
+            echo "❌ 编译失败"
+            tail -100 $GITHUB_WORKSPACE/build.log
+            exit 1
+          fi
+          
+          echo "✅ 编译成功"
+
+      - name: Package Kernel
+        run: |
+          cd $GITHUB_WORKSPACE/out
+          mkdir -p kernel_package
+          find . -name "Image*" -exec cp {} kernel_package/ \;
+          cd kernel_package
+          zip -r $GITHUB_WORKSPACE/kernel-full.zip .
+          echo "✅ 打包完成"
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-full
+          path: kernel-full.zip
+          retention-days: 7
