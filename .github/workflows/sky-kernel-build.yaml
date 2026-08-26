@@ -42,15 +42,20 @@ jobs:
         run: |
           git clone --depth=1 https://github.com/Caiqhsea/kernel_xiaomi_sm4450.git kernel_source
 
-      - name: Extract scsi drivers
+      - name: Download and Extract scsi drivers
         run: |
+          cd kernel_source
+          echo "📥 下载 scsi_full.tar.gz..."
+          wget https://raw.githubusercontent.com/Caiqhsea/kernel_xiaomi_sm4450/sky-t-oss/scsi_full.tar.gz
           if [ -f scsi_full.tar.gz ]; then
-            echo "✅ 找到 scsi_full.tar.gz，正在解压..."
-            tar -xzf scsi_full.tar.gz -C kernel_source/
+            echo "✅ 下载成功，开始解压..."
+            tar -xzf scsi_full.tar.gz
+            rm -f scsi_full.tar.gz
             echo "✅ scsi 驱动解压完成"
-            ls -la kernel_source/drivers/scsi/
+            ls -la drivers/scsi/ | head -20
           else
-            echo "⚠️ scsi_full.tar.gz 不存在，跳过解压"
+            echo "❌ 下载失败"
+            exit 1
           fi
 
       - name: Set Environment Variables
