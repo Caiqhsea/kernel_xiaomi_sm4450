@@ -33,9 +33,10 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             bc bison build-essential ccache cpio curl device-tree-compiler flex \
             git libelf-dev libssl-dev lz4 make python3 rsync unzip zip zstd \
-            libncurses-dev gcc-aarch64-linux-gnu lld clang
+            libncurses-dev gcc-aarch64-linux-gnu lld clang llvm
           echo "✅ 依赖安装完成"
           clang --version
+          llvm-ar --version
 
       - name: Checkout Kernel Source
         run: |
@@ -76,7 +77,6 @@ jobs:
       - name: Fix ufs-qcom.c
         run: |
           cd kernel_source
-          # 修复缺少 dev 变量的问题
           sed -i 's/dev_warn(dev,/dev_warn(\&hba->pdev->dev,/g' drivers/scsi/ufs/ufs-qcom.c 2>/dev/null || true
           sed -i 's/dev_err(dev,/dev_err(\&hba->pdev->dev,/g' drivers/scsi/ufs/ufs-qcom.c 2>/dev/null || true
           sed -i 's/dev_info(dev,/dev_info(\&hba->pdev->dev,/g' drivers/scsi/ufs/ufs-qcom.c 2>/dev/null || true
@@ -91,7 +91,6 @@ jobs:
           echo "=== 可用 defconfig ==="
           ls arch/arm64/configs/ | grep -E "parrot|ravelin|gki" | head -20
           
-          # 使用 parrot_defconfig
           if [ -f arch/arm64/configs/parrot_defconfig ]; then
             echo "✅ 使用 parrot_defconfig"
             make O=$GITHUB_WORKSPACE/out ARCH=arm64 LLVM=1 LLVM_IAS=1 parrot_defconfig
@@ -106,12 +105,10 @@ jobs:
           
           cd $GITHUB_WORKSPACE/out
           
-          # 启用 UFS_QCOM 驱动
           echo "CONFIG_SCSI_UFS_QCOM=m" >> .config
           echo "CONFIG_SCSI_UFS_HPB=y" >> .config
           echo "CONFIG_SCSI_UFS_BSG=y" >> .config
           
-          # 禁用 MODULES
           sed -i '/CONFIG_MODULES/d' .config
           echo "# CONFIG_MODULES is not set" >> .config
           
