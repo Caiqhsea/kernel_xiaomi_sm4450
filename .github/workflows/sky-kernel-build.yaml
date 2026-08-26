@@ -1,189 +1,42 @@
-name: Build Sky Kernel (Full ~44MB)
-
-on:
-  workflow_dispatch:
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    timeout-minutes: 120
-    steps:
-      - name: Cleanup Disk Space
-        run: |
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /opt/ghc
-          sudo rm -rf "/usr/local/share/boost"
-          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/hostedtoolcache
-          df -h
-
-      - name: Setup Swap
-        run: |
-          sudo swapoff -a
-          sudo fallocate -l 8G /swapfile
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
-          echo "=== Swap 信息 ==="
-          free -h
-          swapon --show
-
-      - name: Install Dependencies
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends \
-            bc bison build-essential ccache cpio curl device-tree-compiler flex \
-            git libelf-dev libssl-dev lz4 make python3 rsync unzip zip zstd \
-            libncurses-dev gcc-aarch64-linux-gnu lld llvm
-
-      - name: Checkout Kernel Source
-        run: |
-          git clone --depth=1 https://github.com/Caiqhsea/kernel_xiaomi_sm4450.git kernel_source
-
-      - name: Set Environment Variables
-        run: |
-          echo "ARCH=arm64" >> $GITHUB_ENV
-          echo "CC=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
-          echo "LD=ld.lld" >> $GITHUB_ENV
-          echo "AR=aarch64-linux-gnu-ar" >> $GITHUB_ENV
-          echo "LLVM=0" >> $GITHUB_ENV
-          echo "CROSS_COMPILE=aarch64-linux-gnu-" >> $GITHUB_ENV
-          echo "KBUILD_BUILD_USER=github" >> $GITHUB_ENV
-          echo "KBUILD_BUILD_HOST=actions" >> $GITHUB_ENV
-
-      - name: Remove hqsysfs Driver
-        run: |
-          cd kernel_source
-          rm -rf drivers/misc/hqsysfs
-          sed -i '/source "drivers\/misc\/hqsysfs\/Kconfig"/d' drivers/misc/Kconfig
-          sed -i '/obj-$(CONFIG_HQSYSFS)/d' drivers/misc/Makefile
-          sed -i '/hqsysfs/d' drivers/misc/Makefile
-          echo "✅ hqsysfs removed"
-
-      - name: Fix minidump_log.c for CONFIG_MODULES=n
-        run: |
-          cd kernel_source
-          
-          # 创建 stub 头文件
-          cat > /tmp/minidump_fix.h << 'EOF'
-#ifdef CONFIG_MODULES
-#include <linux/module.h>
-#else
-/* Stub definitions for when CONFIG_MODULES is disabled */
-#include <linux/spinlock.h>
-#include <linux/seq_buf.h>
-
-#define MODULE_STATE_LIVE 0
-#define MODULE_STATE_GOING 1
-#define MD_MODULE_PAGES 1
-
-struct module {
-    char name[64];
-    struct {
-        unsigned long base;
-    } core_layout;
-    int state;
-};
-
-static spinlock_t md_modules_lock;
-static struct seq_buf *md_mod_info_seq_buf;
-#endif
-EOF
-          
-          # 在文件开头插入 stub 定义
-          sed -i '1r /tmp/minidump_fix.h' drivers/soc/qcom/minidump_log.c
-          
-          # 修复 wts 问题 - 使用 se.sum_exec_runtime 替代
-          sed -i 's/->wts\./->se.sum_exec_runtime./g' drivers/soc/qcom/minidump_log.c
-          sed -i 's/tsk->wts/tsk->se.sum_exec_runtime/g' drivers/soc/qcom/minidump_log.c
-          
-          echo "✅ minidump_log.c 修复完成"
-          
-          # 验证修复
-          echo "=== 验证修复 ==="
-          grep -n "MODULE_STATE_LIVE\|md_modules_lock\|md_mod_info_seq_buf\|MD_MODULE_PAGES" drivers/soc/qcom/minidump_log.c | head -20
-          echo ""
-          echo "=== 检查 wts 是否还存在 ==="
-          grep -n "->wts" drivers/soc/qcom/minidump_log.c || echo "✅ wts 已全部修复"
-
-      - name: Generate Full Defconfig
-        run: |
-          cd kernel_source
-          
-          make mrproper
-          
-          echo "=== 生成完整配置 ==="
-          
-          make O=$GITHUB_WORKSPACE/out ARCH=arm64 gki_defconfig
-          make O=$GITHUB_WORKSPACE/out ARCH=arm64 vendor/parrot_GKI.config
-          make O=$GITHUB_WORKSPACE/out ARCH=arm64 vendor/parrot_consolidate.config
-          
-          cd $GITHUB_WORKSPACE/out
-          
-          sed -i '/CONFIG_MODULES/d' .config
-          sed -i '/CONFIG_OCP2131_BIAS/d' .config
-          sed -i '/CONFIG_I2C_SMBUS/d' .config
-          sed -i '/CONFIG_I2C_CHARDEV/d' .config
-          
-          echo "# CONFIG_MODULES is not set" >> .config
-          echo "CONFIG_OCP2131_BIAS=y" >> .config
-          echo "CONFIG_I2C_SMBUS=y" >> .config
-          echo "CONFIG_I2C_CHARDEV=y" >> .config
-          
-          make ARCH=arm64 olddefconfig
-          
-          echo ""
-          echo "=== 验证配置 ==="
-          echo "配置行数："
-          wc -l .config
-          echo ""
-          echo "模块状态："
-          grep "CONFIG_MODULES" .config || echo "✅ 已禁用"
-          echo ""
-          echo "OCP2131："
-          grep "CONFIG_OCP2131" .config
-
-      - name: Build Kernel
-        run: |
-          cd kernel_source
-          echo "=== 编译完整内核 ==="
-          echo "当前内存状态："
-          free -h
-          
-          # 使用 -j4 避免内存不足
-          make O=$GITHUB_WORKSPACE/out -j4 2>&1 | tee $GITHUB_WORKSPACE/build.log
-          
-          BUILD_STATUS=${PIPESTATUS[0]}
-          
-          if [ $BUILD_STATUS -ne 0 ]; then
-            echo "=== 编译失败，查找错误 ==="
-            grep -i "error\|undefined\|fatal" $GITHUB_WORKSPACE/build.log | tail -50
-            exit $BUILD_STATUS
-          fi
-          
-          echo ""
-          echo "=== Image 大小 ==="
-          ls -lh $GITHUB_WORKSPACE/out/arch/arm64/boot/Image
-          
-          echo ""
-          echo "=== 检查模块（应该没有） ==="
-          find $GITHUB_WORKSPACE/out -name "*.ko" 2>/dev/null | wc -l
-          
-          echo ""
-          echo "=== 编译成功！==="
-
-      - name: Upload Kernel Image
-        uses: actions/upload-artifact@v4
-        with:
-          name: Kernel-Image-Full
-          path: ${{ github.workspace }}/out/arch/arm64/boot/Image
-          if-no-files-found: error
-
-      - name: Upload Build Log (on failure)
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-log
-          path: ${{ github.workspace }}/build.log
-          if-no-files-found: ignore
+- name: Build Kernel
+  run: |
+    cd kernel_source
+    echo "=== 编译完整内核 ==="
+    echo "当前内存状态："
+    free -h
+    
+    make O=$GITHUB_WORKSPACE/out -j4 2>&1 | tee $GITHUB_WORKSPACE/build.log
+    
+    BUILD_STATUS=${PIPESTATUS[0]}
+    
+    if [ $BUILD_STATUS -ne 0 ]; then
+      echo "❌ 编译失败"
+      tail -100 $GITHUB_WORKSPACE/build.log
+      exit 1
+    fi
+    
+    echo "✅ 编译成功"
+    
+- name: Package Kernel
+  run: |
+    cd $GITHUB_WORKSPACE/out
+    echo "=== 打包内核 ==="
+    
+    # 查找生成的 Image 文件
+    find . -name "Image" -o -name "Image.gz" -o -name "Image.lz4" | head -5
+    
+    # 打包所有内核镜像
+    mkdir -p kernel_package
+    find . -name "Image*" -exec cp {} kernel_package/ \;
+    
+    cd kernel_package
+    zip -r $GITHUB_WORKSPACE/kernel-full.zip .
+    
+    echo "✅ 打包完成"
+    
+- name: Upload Artifact
+  uses: actions/upload-artifact@v4
+  with:
+    name: kernel-full
+    path: kernel-full.zip
+    retention-days: 7
