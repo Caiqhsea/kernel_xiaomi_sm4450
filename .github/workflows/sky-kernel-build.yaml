@@ -66,6 +66,13 @@ jobs:
           sed -i '/minidump_log/d' drivers/soc/qcom/Makefile
           echo "✅ minidump_log 已移除"
 
+      - name: Disable jtagv8
+        run: |
+          cd kernel_source
+          rm -f drivers/soc/qcom/jtagv8.c
+          sed -i '/jtagv8/d' drivers/soc/qcom/Makefile
+          echo "✅ jtagv8 已移除"
+
       - name: Generate Defconfig
         run: |
           cd kernel_source
