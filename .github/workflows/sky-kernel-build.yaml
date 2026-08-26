@@ -44,10 +44,7 @@ jobs:
 
       - name: Extract scsi drivers
         run: |
-          cd kernel_source
-          tar -xzf ../scsi_full.tar.gz
-          echo "✅ scsi 驱动解压完成，直接覆盖系统目录"
-          ls -la drivers/scsi/ | head -20
+          cd kernel_source && tar -xzf ../scsi_full.tar.gz
 
       - name: Set Environment Variables
         run: |
@@ -65,21 +62,18 @@ jobs:
           sed -i '/source "drivers\/misc\/hqsysfs\/Kconfig"/d' drivers/misc/Kconfig
           sed -i '/obj-$(CONFIG_HQSYSFS)/d' drivers/misc/Makefile
           sed -i '/hqsysfs/d' drivers/misc/Makefile
-          echo "✅ hqsysfs removed"
 
       - name: Disable minidump_log
         run: |
           cd kernel_source
           rm -f drivers/soc/qcom/minidump_log.c
           sed -i '/minidump_log/d' drivers/soc/qcom/Makefile
-          echo "✅ minidump_log 已移除"
 
       - name: Disable jtagv8
         run: |
           cd kernel_source
           rm -f drivers/soc/qcom/jtagv8.c
           sed -i '/jtagv8/d' drivers/soc/qcom/Makefile
-          echo "✅ jtagv8 已移除"
 
       - name: Fix ufs-qcom.c
         run: |
@@ -88,57 +82,36 @@ jobs:
           sed -i 's/dev_err(dev,/dev_err(\&hba->pdev->dev,/g' drivers/scsi/ufs/ufs-qcom.c 2>/dev/null || true
           sed -i 's/dev_info(dev,/dev_info(\&hba->pdev->dev,/g' drivers/scsi/ufs/ufs-qcom.c 2>/dev/null || true
           sed -i 's/dev_dbg(dev,/dev_dbg(\&hba->pdev->dev,/g' drivers/scsi/ufs/ufs-qcom.c 2>/dev/null || true
-          echo "✅ ufs-qcom.c 修复完成"
 
       - name: Generate Defconfig
         run: |
           cd kernel_source
           make mrproper
-          
-          echo "=== 可用 defconfig ==="
-          ls arch/arm64/configs/ | grep -E "parrot|ravelin|gki" | head -20
-          
           if [ -f arch/arm64/configs/parrot_defconfig ]; then
-            echo "✅ 使用 parrot_defconfig"
             make O=$GITHUB_WORKSPACE/out ARCH=arm64 LLVM=1 LLVM_IAS=1 parrot_defconfig
           elif [ -f arch/arm64/configs/ravelin_defconfig ]; then
-            echo "✅ 使用 ravelin_defconfig"
             make O=$GITHUB_WORKSPACE/out ARCH=arm64 LLVM=1 LLVM_IAS=1 ravelin_defconfig
           else
-            echo "⚠️ 使用 gki_defconfig + vendor 配置"
             make O=$GITHUB_WORKSPACE/out ARCH=arm64 LLVM=1 LLVM_IAS=1 gki_defconfig
             make O=$GITHUB_WORKSPACE/out ARCH=arm64 LLVM=1 LLVM_IAS=1 vendor/parrot_GKI.config || true
           fi
-          
           cd $GITHUB_WORKSPACE/out
-          
           echo "CONFIG_SCSI_UFS_QCOM=m" >> .config
           echo "CONFIG_SCSI_UFS_HPB=y" >> .config
           echo "CONFIG_SCSI_UFS_BSG=y" >> .config
-          
           sed -i '/CONFIG_MODULES/d' .config
           echo "# CONFIG_MODULES is not set" >> .config
-          
           make ARCH=arm64 LLVM=1 LLVM_IAS=1 olddefconfig
-          
-          echo "=== 验证 UFS 配置 ==="
-          grep "CONFIG_SCSI_UFS" .config || echo "⚠️ UFS 配置未找到"
 
       - name: Build Kernel
         run: |
           cd kernel_source
-          echo "=== 编译完整内核 ==="
-          free -h
-          
           make O=$GITHUB_WORKSPACE/out -j$(nproc) LLVM=1 LLVM_IAS=1 2>&1 | tee $GITHUB_WORKSPACE/build.log
-          
           if [ ${PIPESTATUS[0]} -ne 0 ]; then
             echo "❌ 编译失败"
             tail -100 $GITHUB_WORKSPACE/build.log
             exit 1
           fi
-          
-          echo "✅ 编译成功"
 
       - name: Package Kernel
         run: |
@@ -147,7 +120,6 @@ jobs:
           find . -name "Image*" -exec cp {} kernel_package/ \;
           cd kernel_package
           zip -r $GITHUB_WORKSPACE/kernel-full.zip .
-          echo "✅ 打包完成"
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
