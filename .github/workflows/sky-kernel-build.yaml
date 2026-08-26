@@ -40,7 +40,7 @@ jobs:
 
       - name: Checkout Kernel Source
         run: |
-          git clone --depth=1 -b lineage-20 https://github.com/Caiqhsea/kernel_xiaomi_sm4450.git kernel_source
+          git clone -b lineage-20 https://github.com/Caiqhsea/kernel_xiaomi_sm4450.git kernel_source
 
       - name: Extract scsi drivers
         run: |
