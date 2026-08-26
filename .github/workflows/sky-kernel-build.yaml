@@ -33,12 +33,8 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             bc bison build-essential ccache cpio curl device-tree-compiler flex \
             git libelf-dev libssl-dev lz4 make python3 rsync unzip zip zstd \
-            libncurses-dev gcc-aarch64-linux-gnu lld
-          
-          # 下载 Clang 12.0.5（匹配你手机的版本）
-          wget -q https://github.com/llvm/llvm-project/releases/download/llvmorg-12.0.5/clang+llvm-12.0.5-x86_64-linux-gnu-ubuntu-20.04.tar.xz
-          tar -xf clang+llvm-12.0.5-x86_64-linux-gnu-ubuntu-20.04.tar.xz
-          echo "$GITHUB_WORKSPACE/clang+llvm-12.0.5-x86_64-linux-gnu-ubuntu-20.04/bin" >> $GITHUB_PATH
+            libncurses-dev gcc-aarch64-linux-gnu lld clang
+          echo "✅ 依赖安装完成"
           clang --version
 
       - name: Checkout Kernel Source
@@ -80,7 +76,7 @@ jobs:
       - name: Fix ufs-qcom.c
         run: |
           cd kernel_source
-          # 修复缺少 dev 变量的问题（保留 UFS 驱动）
+          # 修复缺少 dev 变量的问题
           sed -i 's/dev_warn(dev,/dev_warn(\&hba->pdev->dev,/g' drivers/scsi/ufs/ufs-qcom.c 2>/dev/null || true
           sed -i 's/dev_err(dev,/dev_err(\&hba->pdev->dev,/g' drivers/scsi/ufs/ufs-qcom.c 2>/dev/null || true
           sed -i 's/dev_info(dev,/dev_info(\&hba->pdev->dev,/g' drivers/scsi/ufs/ufs-qcom.c 2>/dev/null || true
@@ -95,7 +91,7 @@ jobs:
           echo "=== 可用 defconfig ==="
           ls arch/arm64/configs/ | grep -E "parrot|ravelin|gki" | head -20
           
-          # 使用 parrot_defconfig（你的设备是 parrot/ravelin）
+          # 使用 parrot_defconfig
           if [ -f arch/arm64/configs/parrot_defconfig ]; then
             echo "✅ 使用 parrot_defconfig"
             make O=$GITHUB_WORKSPACE/out ARCH=arm64 LLVM=1 LLVM_IAS=1 parrot_defconfig
@@ -103,18 +99,19 @@ jobs:
             echo "✅ 使用 ravelin_defconfig"
             make O=$GITHUB_WORKSPACE/out ARCH=arm64 LLVM=1 LLVM_IAS=1 ravelin_defconfig
           else
-            echo "⚠️ 使用 gki_defconfig"
+            echo "⚠️ 使用 gki_defconfig + vendor 配置"
             make O=$GITHUB_WORKSPACE/out ARCH=arm64 LLVM=1 LLVM_IAS=1 gki_defconfig
+            make O=$GITHUB_WORKSPACE/out ARCH=arm64 LLVM=1 LLVM_IAS=1 vendor/parrot_GKI.config || true
           fi
           
           cd $GITHUB_WORKSPACE/out
           
-          # 启用 UFS_QCOM 驱动（你的手机需要）
+          # 启用 UFS_QCOM 驱动
           echo "CONFIG_SCSI_UFS_QCOM=m" >> .config
           echo "CONFIG_SCSI_UFS_HPB=y" >> .config
           echo "CONFIG_SCSI_UFS_BSG=y" >> .config
           
-          # 禁用 MODULES（和你之前一样）
+          # 禁用 MODULES
           sed -i '/CONFIG_MODULES/d' .config
           echo "# CONFIG_MODULES is not set" >> .config
           
@@ -122,9 +119,6 @@ jobs:
           
           echo "=== 验证 UFS 配置 ==="
           grep "CONFIG_SCSI_UFS" .config || echo "⚠️ UFS 配置未找到"
-          
-          echo "=== 配置行数 ==="
-          wc -l .config
 
       - name: Build Kernel
         run: |
