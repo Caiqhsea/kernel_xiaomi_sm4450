@@ -1,13 +1,10 @@
 name: Build Sky Kernel
-
 on:
   workflow_dispatch:
-
 jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 120
-    
     steps:
       - name: Cleanup Disk Space
         run: |
