@@ -154,34 +154,4 @@ jobs:
         with:
           name: kernel-full
           path: kernel-full.zip
-          retention-days: 7      - name: Build Kernel
-        run: |
-          cd kernel_source
-          echo "=== 编译完整内核 ==="
-          free -h
-          
-          make O=$GITHUB_WORKSPACE/out -j$(nproc) LLVM=1 LLVM_IAS=1 2>&1 | tee $GITHUB_WORKSPACE/build.log
-          
-          if [ ${PIPESTATUS[0]} -ne 0 ]; then
-            echo "❌ 编译失败"
-            tail -100 $GITHUB_WORKSPACE/build.log
-            exit 1
-          fi
-          
-          echo "✅ 编译成功"
-
-      - name: Package Kernel
-        run: |
-          cd $GITHUB_WORKSPACE/out
-          mkdir -p kernel_package
-          find . -name "Image*" -exec cp {} kernel_package/ \;
-          cd kernel_package
-          zip -r $GITHUB_WORKSPACE/kernel-full.zip .
-          echo "✅ 打包完成"
-
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: kernel-full
-          path: kernel-full.zip
           retention-days: 7
