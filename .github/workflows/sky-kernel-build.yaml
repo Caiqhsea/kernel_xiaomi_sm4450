@@ -41,11 +41,13 @@ jobs:
           clang --version
           llvm-ar --version
 
+      # ========== 使用 temp 分支 ==========
       - name: Checkout Kernel Source
         uses: actions/checkout@v4
         with:
           path: kernel_source
-          ref: lineage-20
+          ref: temp               # <--- 明确为 temp
+      # ==================================
 
       - name: Extract scsi drivers
         run: |
@@ -91,7 +93,6 @@ jobs:
           sed -i 's/dev_info(dev,/dev_info(&hba->pdev->dev,/g' drivers/scsi/ufs/ufs-qcom.c || true
           sed -i 's/dev_dbg(dev,/dev_dbg(&hba->pdev->dev,/g' drivers/scsi/ufs/ufs-qcom.c || true
 
-      # ========== 关键修复：在 make mrproper 之后创建固件目录 ==========
       - name: Generate Defconfig
         run: |
           cd kernel_source
@@ -104,7 +105,6 @@ jobs:
           make O="$GITHUB_WORKSPACE/out" ARCH=arm64 LLVM=1 LLVM_IAS=1 olddefconfig
           sed -i '/CONFIG_UNUSED_KSYMS_WHITELIST/d' "$GITHUB_WORKSPACE/out/.config"
           make O="$GITHUB_WORKSPACE/out" ARCH=arm64 LLVM=1 LLVM_IAS=1 olddefconfig
-      # ================================================================
 
       - name: Build Kernel
         run: |
