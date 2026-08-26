@@ -26,14 +26,16 @@
 #include <linux/nvmem-consumer.h>
 #include <linux/irq.h>
 
-#include "ufshcd.h"
-#include "ufshcd-pltfrm.h"
-#include "unipro.h"
+#include "../mi_ufs/mi-ufshcd.h"
+#include "../mi_ufs/mi-ufshcd-pltfrm.h"
+#include "../mi_ufs/mi-unipro.h"
 #include "ufs-qcom.h"
-#include "ufshci.h"
-#include "ufs_quirks.h"
+#include "../mi_ufs/mi-ufshci.h"
+#include "../mi_ufs/mi_ufs_quirks.h"
 #include "ufshcd-crypto-qti.h"
 #include <trace/hooks/ufshcd.h>
+#include <linux/nls.h>
+#include <asm/unaligned.h>
 
 #define UFS_QCOM_DEFAULT_DBG_PRINT_EN	\
 	(UFS_QCOM_DBG_PRINT_REGS_EN | UFS_QCOM_DBG_PRINT_TEST_BUS_EN)
@@ -109,6 +111,34 @@ struct ufs_qcom_dev_params {
 	u32 desired_working_mode;
 };
 
+//  ++ WT Add
+struct WT_UFS
+{
+	u16 vendor_id;
+	u64 density;
+	char vendor_name[10];
+	char product_name[18];
+};
+
+struct WT_UFS *wt_ufs = NULL;
+struct ufs_hba* wt_hba = NULL;
+
+/* Query request retries */
+#define QUERY_REQ_RETRIES 3
+/**
+ * struct uc_string_id - unicode string
+ *
+ * @len: size of this descriptor inclusive
+ * @type: descriptor type
+ * @uc: unicode string character
+ */
+struct uc_string_id {
+	u8 len;
+	u8 type;
+	wchar_t uc[];
+} __packed;
+// -- WT Add
+
 static struct ufs_qcom_host *ufs_qcom_hosts[MAX_UFS_QCOM_HOSTS];
 
 static void ufs_qcom_get_default_testbus_cfg(struct ufs_qcom_host *host);
@@ -126,6 +156,18 @@ static void ufs_qcom_parse_g4_workaround_flag(struct ufs_qcom_host *host);
 static int ufs_qcom_mod_min_cpufreq(unsigned int cpu, s32 new_val);
 static void ufs_qcom_hook_clock_scaling(void *used, struct ufs_hba *hba, bool *force_out,
 		bool *force_saling, bool *scale_up);
+
+// ++ WT Add
+u8 get_ddr_size(void);
+
+static int ufs_wt_read_string_desc(struct ufs_hba *hba, u8 desc_index, u8 **buf, bool ascii);
+int ufs_wt_get_string_desc(struct ufs_hba *hba, void* buf, int size, enum device_desc_param pname, bool ascii_std);
+int ufs_wt_read_desc_param(struct ufs_hba *hba, enum desc_idn desc_id, u8 desc_index, u8 param_offset, void* buf, u8 param_size);
+static inline char ufshcd_remove_non_printable(u8 ch)
+{
+	return (ch >= 0x20 && ch <= 0x7e) ? ch : ' ';
+}
+// -- WT Add
 
 static int ufs_qcom_get_pwr_dev_param(struct ufs_qcom_dev_params *qcom_param,
 				      struct ufs_pa_layer_attr *dev_max,
@@ -476,9 +518,8 @@ static void ufs_qcom_select_unipro_mode(struct ufs_qcom_host *host)
 	ufshcd_rmwl(host->hba, QUNIPRO_SEL,
 		   ufs_qcom_cap_qunipro(host) ? QUNIPRO_SEL : 0,
 		   REG_UFS_CFG1);
-
-	if (host->hw_ver.major >= 0x05)
-		ufshcd_rmwl(host->hba, QUNIPRO_G4_SEL, 0, REG_UFS_CFG0);
+	/* make sure above configuration is applied before we return */
+	mb();
 }
 
 /*
@@ -716,7 +757,6 @@ static void ufs_qcom_force_mem_config(struct ufs_hba *hba)
 		qcom_clk_set_flags(clki->clk, CLKFLAG_NORETAIN_PERIPH);
 		qcom_clk_set_flags(clki->clk, CLKFLAG_PERIPH_OFF_CLEAR);
 	}
-	ufshcd_readl(hba, REG_UFS_CFG2);
 }
 
 static int ufs_qcom_hce_enable_notify(struct ufs_hba *hba,
@@ -841,7 +881,7 @@ static int __ufs_qcom_cfg_timers(struct ufs_hba *hba, u32 gear,
 		 * make sure above write gets applied before we return from
 		 * this function.
 		 */
-		ufshcd_readl(hba, REG_UFS_SYS1CLK_1US);
+		mb();
 	}
 
 	if (ufs_qcom_cap_qunipro(host))
@@ -907,9 +947,9 @@ static int __ufs_qcom_cfg_timers(struct ufs_hba *hba, u32 gear,
 		mb();
 	}
 
-	if (update_link_startup_timer && host->hw_ver.major != 0x5) {
+	if (update_link_startup_timer) {
 		ufshcd_writel(hba, ((core_clk_rate / MSEC_PER_SEC) * 100),
-			      REG_UFS_CFG0);
+			      REG_UFS_PA_LINK_STARTUP_TIMER);
 		/*
 		 * make sure that this configuration is applied before
 		 * we return
@@ -2819,13 +2859,13 @@ ufs_qcom_ioctl(struct scsi_device *dev, unsigned int cmd, void __user *buffer)
 	int err = 0;
 
 	BUG_ON(!hba);
+	if (!buffer) {
+		dev_err(hba->dev, "%s: User buffer is NULL!\n", __func__);
+		return -EINVAL;
+	}
 
 	switch (cmd) {
 	case UFS_IOCTL_QUERY:
-		if (!buffer) {
-			dev_err(hba->dev, "%s: User buffer is NULL!\n", __func__);
-			return -EINVAL;
-		}
 		pm_runtime_get_sync(hba->dev);
 		err = ufs_qcom_query_ioctl(hba,
 					   ufshcd_scsi_to_upiu_lun(dev->lun),
@@ -3440,6 +3480,8 @@ static int ufs_qcom_init(struct ufs_hba *hba)
 				__func__, err);
 		err = 0;
 	}
+
+	wt_hba = hba;
 
 	ufs_qcom_init_sysfs(hba);
 
@@ -4817,6 +4859,232 @@ static ssize_t hibern8_count_show(struct device *dev,
 
 static DEVICE_ATTR_RO(hibern8_count);
 
+//  ++WT Add
+/*obtain ddr size*/
+u8 get_ddr_size(void)
+{
+	u8 ddr_size_in_GB = 0;
+	int ddr_size_in_KB = 0;
+	struct sysinfo i;
+
+	si_meminfo(&i);
+
+	ddr_size_in_KB = (i.totalram) * 4; // page: 4k
+
+	//ddr_size_in_GB = memblock_mem_size_in_gb();
+	pr_err("i.totalram: %d, memblock_mem_size %d KB\n", i.totalram, ddr_size_in_KB);
+
+	if (ddr_size_in_KB > (16 * 1024 * 1024) && ddr_size_in_KB <= (18 * 1024 * 1024)) {
+		ddr_size_in_GB = 18;
+	} else if (ddr_size_in_KB > (12 * 1024 * 1024) && ddr_size_in_KB <= (16 * 1024 * 1024)) {
+		ddr_size_in_GB = 16;
+	} else if (ddr_size_in_KB > (10 * 1024 * 1024) && ddr_size_in_KB <= (12 * 1024 * 1024)) {
+		ddr_size_in_GB = 12;
+	} else if (ddr_size_in_KB > (8 * 1024 * 1024) && ddr_size_in_KB <= (10 * 1024 * 1024)) {
+		ddr_size_in_GB = 10;
+	} else if (ddr_size_in_KB > (6 * 1024 * 1024) && ddr_size_in_KB <= (8 * 1024 * 1024)) {
+		ddr_size_in_GB = 8;
+	} else if (ddr_size_in_KB > (4 * 1024 * 1024) && ddr_size_in_KB <= (6 * 1024 * 1024)) {
+		ddr_size_in_GB = 6;
+	} else if (ddr_size_in_KB > (3 * 1024 * 1024) && ddr_size_in_KB <= (4 * 1024 * 1024)) {
+		ddr_size_in_GB = 4;
+	} else if (ddr_size_in_KB > (2 * 1024 * 1024) && ddr_size_in_KB <= (3 * 1024 * 1024)) {
+		ddr_size_in_GB = 3;
+	} else if (ddr_size_in_KB > (1 * 1024 * 1024) && ddr_size_in_KB <= (2 * 1024 * 1024)) {
+		ddr_size_in_GB = 2;
+	} else {
+		ddr_size_in_GB = 0;
+	}
+
+	printk("get_ddr_size: ddr_size_in_GB = %d GB\n", ddr_size_in_GB);
+	return (u8)ddr_size_in_GB;
+}
+
+static int ufs_wt_read_string_desc(struct ufs_hba *hba, u8 desc_index, u8 **buf, bool ascii)
+{
+	struct uc_string_id *uc_str;
+	u8 *str;
+	int ret;
+	if (!buf)
+		return -EINVAL;
+	uc_str = kzalloc(QUERY_DESC_MAX_SIZE, GFP_KERNEL);
+	if (!uc_str)
+		return -ENOMEM;
+	ret = ufshcd_read_desc_param(hba, QUERY_DESC_IDN_STRING, desc_index, 0,
+				     (u8 *)uc_str, QUERY_DESC_MAX_SIZE);
+	if (ret < 0) {
+		dev_err(hba->dev, "Reading String Desc failed after %d retries. err = %d\n",
+			QUERY_REQ_RETRIES, ret);
+		str = NULL;
+		goto out;
+	}
+	if (uc_str->len <= QUERY_DESC_HDR_SIZE) {
+		dev_dbg(hba->dev, "String Desc is of zero length\n");
+		str = NULL;
+		ret = 0;
+		goto out;
+	}
+	if (ascii) {
+		ssize_t ascii_len;
+		int i;
+		/* remove header and divide by 2 to move from UTF16 to UTF8 */
+		ascii_len = (uc_str->len - QUERY_DESC_HDR_SIZE) / 2 + 1;
+		str = kzalloc(ascii_len, GFP_KERNEL);
+		if (!str) {
+			ret = -ENOMEM;
+			goto out;
+		}
+		/*
+		 * the descriptor contains string in UTF16 format
+		 * we need to convert to utf-8 so it can be displayed
+		 */
+		ret = utf16s_to_utf8s(uc_str->uc,
+				      uc_str->len - QUERY_DESC_HDR_SIZE,
+				      UTF16_BIG_ENDIAN, str, ascii_len);
+		/* replace non-printable or non-ASCII characters with spaces */
+		for (i = 0; i < ret; i++)
+			str[i] = ufshcd_remove_non_printable(str[i]);
+		str[ret++] = '\0';
+	} else {
+		str = kmemdup(uc_str, uc_str->len, GFP_KERNEL);
+		if (!str) {
+			ret = -ENOMEM;
+			goto out;
+		}
+		ret = uc_str->len;
+	}
+out:
+	*buf = str;
+	kfree(uc_str);
+	return ret;
+}
+
+int ufs_wt_get_string_desc(struct ufs_hba *hba, void* buf, int size, enum device_desc_param pname, bool ascii_std)
+{
+	u8 index;
+	int ret = 0;
+	int desc_len = QUERY_DESC_MAX_SIZE;
+	u8 *desc_buf;
+	desc_buf = kzalloc(QUERY_DESC_MAX_SIZE, GFP_ATOMIC);
+	if (!desc_buf)
+		return -ENOMEM;
+	pm_runtime_get_sync(hba->dev);
+	ret = ufshcd_query_descriptor_retry(hba,
+		UPIU_QUERY_OPCODE_READ_DESC, QUERY_DESC_IDN_DEVICE,
+		0, 0, desc_buf, &desc_len);
+	if (ret) {
+		ret = -EINVAL;
+		goto out;
+	}
+	index = desc_buf[pname];
+	kfree(desc_buf);
+	desc_buf = NULL;
+	ret = ufs_wt_read_string_desc(hba, index, &desc_buf, ascii_std);
+	if (ret < 0)
+		goto out;
+	memcpy(buf, desc_buf, size);
+out:
+	pm_runtime_put_sync(hba->dev);
+	kfree(desc_buf);
+	return ret;
+}
+
+int ufs_wt_read_desc_param(struct ufs_hba *hba, enum desc_idn desc_id, u8 desc_index, u8 param_offset, void* buf, u8 param_size)
+{
+	u8 desc_buf[8] = {0};
+	int ret;
+	if (param_size > 8)
+		return -EINVAL;
+	pm_runtime_get_sync(hba->dev);
+	ret = ufshcd_read_desc_param(hba, desc_id, desc_index,
+				param_offset, desc_buf, param_size);
+	pm_runtime_put_sync(hba->dev);
+	if (ret) {
+		dev_err(hba->dev, "%s: [lxf] ufshcd_read_desc_param err!", __func__);
+		return -EINVAL;
+	}
+	switch (param_size) {
+	case 1:
+		*(u8*)buf = *desc_buf;
+		break;
+	case 2:
+		*(u16*)buf = get_unaligned_be16(desc_buf);
+		break;
+	case 4:
+		*(u32*)buf =  get_unaligned_be32(desc_buf);
+		break;
+	case 8:
+		*(u64*)buf= get_unaligned_be64(desc_buf);
+		break;
+	default:
+		*(u8*)buf = *desc_buf;
+		break;
+	}
+	return ret;
+}
+
+static void wt_ufs_init(void)
+{
+	u64 raw_device_capacity = 0;
+	u16 ufs_id = 0;
+	wt_ufs = kzalloc(sizeof(struct WT_UFS), GFP_KERNEL);
+	ufs_wt_get_string_desc(wt_hba, wt_ufs->product_name, (sizeof(wt_ufs->product_name) - 1), DEVICE_DESC_PARAM_PRDCT_NAME, SD_ASCII_STD);
+	ufs_wt_read_desc_param(wt_hba, QUERY_DESC_IDN_DEVICE, 0, DEVICE_DESC_PARAM_MANF_ID, &ufs_id, 2);
+	wt_ufs->vendor_id = ufs_id;
+	switch(ufs_id){
+		case 0x1AD:
+			strcpy(wt_ufs->vendor_name, "SKhynix");
+			break;
+		case 0xA6B:
+			strcpy(wt_ufs->vendor_name, "CS");
+			break;
+		case 0xCD6:
+			strcpy(wt_ufs->vendor_name, "HG");
+			break;
+		case 0x12C:
+		    strcpy(wt_ufs->vendor_name, "Micron");
+			break;
+		default:
+			strcpy(wt_ufs->vendor_name, "Unkown");
+			break;
+	}
+	ufs_wt_read_desc_param(wt_hba, QUERY_DESC_IDN_GEOMETRY, 0, GEOMETRY_DESC_PARAM_DEV_CAP, &raw_device_capacity, 8);
+	raw_device_capacity = (raw_device_capacity * 512) / 1024 / 1024 / 1024;
+	if (raw_device_capacity > 512 && raw_device_capacity <= 1024) {
+		wt_ufs->density = 1024;
+	} else if (raw_device_capacity > 256) {
+		wt_ufs->density = 512;
+	} else if (raw_device_capacity > 128) {
+		wt_ufs->density = 256;
+	} else if (raw_device_capacity > 64) {
+		wt_ufs->density = 128;
+	} else if (raw_device_capacity > 32) {
+		wt_ufs->density = 64;
+	} else if (raw_device_capacity > 16) {
+		wt_ufs->density = 32;
+	} else if (raw_device_capacity > 8) {
+		wt_ufs->density = 8;
+	} else {
+		wt_ufs->density = 0;
+		dev_err(wt_hba->dev, "%s: [lxf] unkonwn ufs size %d\n",
+				 __func__, raw_device_capacity);
+	}
+	dev_err(wt_hba->dev, "%s: [lxf] vendor_id: 0x%04x  vendor_name: %s  product_name: %s  density: %d\n",
+	 			__func__, wt_ufs->vendor_id, wt_ufs->vendor_name, wt_ufs->product_name,wt_ufs->density);
+}
+
+static ssize_t flash_name_show(struct device *dev,
+			struct device_attribute *attr, char *buf)
+{
+	if (NULL == wt_ufs) {
+		wt_ufs_init();
+	}
+	return scnprintf(buf, PAGE_SIZE, "%s_%s_%dG_%dG\n", wt_ufs->vendor_name, wt_ufs->product_name, get_ddr_size(), wt_ufs->density);
+}
+
+static DEVICE_ATTR_RO(flash_name);
+// WT end
+
 static ssize_t irq_affinity_support_store(struct device *dev,
 		struct device_attribute *attr,
 		const char *buf, size_t count)
@@ -4875,6 +5143,7 @@ static struct attribute *ufs_qcom_sysfs_attrs[] = {
 	&dev_attr_turbo_support.attr,
 	&dev_attr_hibern8_count.attr,
 	&dev_attr_irq_affinity_support.attr,
+	&dev_attr_flash_name.attr,
 	NULL
 };
 
